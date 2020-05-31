@@ -1,8 +1,8 @@
-#tinytest
+# tinytest
 
-###because you just want to run some tests - not install a "framework"
+### because you just want to run some tests - not install a "framework"
 
-##features
+## features
 * Single file < 500 lines of code
 * Overideable callback functions for formatting, test selection, etc
 * Code Coverage in lcov format _requires phpdbg_
@@ -12,18 +12,18 @@
 * Supports data providers for processing test data and conditions
 * Generates full reports with code coverage in milliseconds
 
-##todo
+## todo
 * add multithreaded support for large test suites
 
 
-##install
+## install
 ```
 git clone https://github.com/bitslip6/tinytest
 or
 curl https://github.com/bitslip6/tinytest/release/r1
 ```
 
-##hello world
+## hello world
 **create a test under your project**
 ```
 cd myproject
@@ -46,12 +46,14 @@ function test_hello_world() : string {
 tinytest.php requires phpdbg (debug php build) for code coverage reports but can be run without coverage using a standard php 7.x intrepreter.  (see installing phpdbg for additional details). tinytest contains a #! for phpdbg so you can run it as a binary (./tinytest.php) or as a php script (phpdbg ./tinytest.php)
 
 ```
-/path/to/tinytest.php -f ./tests/test_hello_world.php<pre>/home/cory/tools/tinytest/tinytest.php<font color="#06989A"> Ver 5</font>
-loading test file: <font color="#34E2E2">[./tests/test_hello_world.php]                  </font><font color="#4E9A06">  OK</font>
-testing function:  <font color="#3465A4">test_hello_world                                </font> <font color="#4E9A06"> OK</font>
-<font color="#555753">  -&gt; hello world!</font>
+/path/to/tinytest.php -f ./tests/test_hello_world.php
+
+/home/cory/tools/tinytest/tinytest.php Ver 1
+loading test file: [./tests/test_hello_world.php]                    OK
+testing function:  test_hello_world                                  OK
+  -> hello world!
 generating lconv.info...
 Memory usage: 2,048KB
-</pre>
+
 
 ```
