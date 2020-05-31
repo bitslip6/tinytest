@@ -1,8 +1,8 @@
 # tinytest
 
-### because you just want to run some tests - not install a "framework"
+### Because you just want to run some tests - not install a "framework"
 
-## features
+## Features
 * Single file < 500 lines of code
 * Overideable callback functions for formatting, test selection, etc
 * Code Coverage in lcov format _requires phpdbg_
@@ -12,19 +12,19 @@
 * Supports data providers for processing test data and conditions
 * Generates full reports with code coverage in milliseconds
 
-## todo
+#### todo
 * add multithreaded support for large test suites
 
 
-## install
+## Install
 ```
 git clone https://github.com/bitslip6/tinytest
 or
 curl https://github.com/bitslip6/tinytest/release/r1
 ```
 
-## hello world
-**create a test under your project**
+## Quick Start
+create a test under your project:
 ```
 cd myproject
 mkdir tests
@@ -32,7 +32,7 @@ cd tests
 vim test_helloworld.php
 ```
 
-**add the following content to your test_helloworld.php**
+add the following content to your test_helloworld.php:
 ```
 <?php declare(strict_types=1);
 
