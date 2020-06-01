@@ -53,4 +53,9 @@ namespace {
             return ($haystack != null && strstr($haystack, $needle) === false); }, $needle, $haystack, $message);
     }
 
+	function assert_instanceof($actual, $expected, $message) {
+        assert_base_condition(function($actual, $expected) { 
+            return ($actual != null && $actual instanceof $expected); }, $actual, $expected, $message);
+	}
+	
 }
