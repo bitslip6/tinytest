@@ -4,6 +4,7 @@ namespace {
     function assert_base_condition(callable $test_fn, $actual, $expected, string $message) {
         TinyTest\count_assertion();
         if ($test_fn($actual, $expected) === false) {
+        	TinyTest\count_assertion_fail();
             throw new TinyTest\TestError($message, $actual, $expected);
         }
         TinyTest\count_assertion_pass();

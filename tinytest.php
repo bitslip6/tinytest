@@ -1,4 +1,4 @@
-#!phpdbg -qrr
+#!phpdbg -qrr,
 <?php declare(strict_types=1);
 namespace TinyTest {
 define("VER", "8");
@@ -7,7 +7,7 @@ define("VER", "8");
 // test if a file is a test file, this should match your test filename format
 // $options command line options
 // $filename is th file to test
-function is_test_file(string $filename, array $options) : bool {
+function is_test_file(string $filename, array $options = null) : bool {
     return (startsWith($filename, "test_") && endsWith($filename, "php"));
 }
 
@@ -48,7 +48,7 @@ function format_test_run(string $test_name, array $options) : string {
 // format test failures , simplify?
 function format_assertion_error(string $result, \Error $ex, array $options) {
     if (little_quiet($options)) {
-        $out  = RED . "error\n";
+        $out  = RED . " error\n";
         $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "\n";
     }
     if (not_quiet($options)) {
@@ -80,6 +80,7 @@ function full_quiet(array $options) : bool { return $options['q'] >= 3; }
 function verbose(array $options) : bool { return isset($options['v']); }
 function count_assertion() { $GLOBALS['assert_count']++; }
 function count_assertion_pass() { $GLOBALS['assert_pass_count']++; }
+function count_assertion_fail() { $GLOBALS['assert_fail_count']++; }
 function panic_if(bool $result, string $msg) {if ($result) { die($msg); }}
 function warn_ifnot(bool $result, string $msg) {if (!$result) { printf("%s%s%s\n", YELLOW, $msg, NORML); }}
 function between(int $data, int $min, int $max) { return $data >= $min && $data <= $max; }
@@ -87,9 +88,11 @@ function do_for_all(array $data, callable $fn) { foreach ($data as $item) { $fn(
 function do_for_allkey(array $data, callable $fn) { foreach ($data as $key => $item) { $fn($key); } }
 function do_for_all_key_value(array $data, callable $fn) { foreach ($data as $key => $item) { $fn($key, $item); } }
 function do_for_all_key_value_recursive(array $data, callable $fn) { foreach ($data as $key => $items) { foreach ($items as $item) { $fn($key, $item); } } }
+function keep_if_key(array $data, callable $fn) { $result = $data; foreach ($data as $key => $item) { if (!$fn($key)) { unset($result[$key]); } return $result; }}
 function if_then_do($testfn, $action, $optionals = null) : callable { return function($argument) use ($testfn, $action, $optionals) { if ($argument && $testfn($argument, $optionals)) { $action($argument); }}; }
 function is_equal_reduced($value) : callable { return function($initial, $argument) use ($value) { return ($initial || $argument === $value); }; }
 function is_contain($value) : callable { return function($argument) use ($value) { return (strstr($argument, $value) !== false); }; }
+function is_not_contain($value) : callable { return function($argument) use ($value) { return (strstr($argument, $value) === false); }; }
 function startsWith(string $haystack, string $needle) { return (substr($haystack, 0, strlen($needle)) === $needle); } 
 function endsWith(string $haystack, string $needle) { return (substr($haystack, -strlen($needle)) === $needle); } 
 function say($color = '\033[39m', $prefix = "") : callable { return function($line) use ($color, $prefix) : string { return (strlen($line) > 0) ? "{$color}{$prefix}{$line}".NORML."\n" : ""; }; } 
@@ -101,7 +104,7 @@ function init(array $options) {
     // global state (yuck)
     global $m0;
     $m0 = microtime(true);
-    $GLOBALS['assert_count'] = $GLOBALS['assert_pass_count'] = 0;
+    $GLOBALS['assert_count'] = $GLOBALS['assert_pass_count'] = $GLOBALS['assert_fail_count'] = 0;
 
     // define console colors
     define("ESC", "\033");
@@ -120,6 +123,9 @@ function init(array $options) {
     if (!isset($options['d']) && !isset($options['f']) || isset($options['h']) || isset($options['?'])) { die(show_usage()); }
     // set assertion state
     ini_set("assert.exception", "1");
+
+    // squelch error reporting if requested
+    error_reporting($options['s'] ? 0 : E_ALL);
 }
 
 // load a single unit test
@@ -186,10 +192,12 @@ function show_usage() {
     echo " -i <test_type> " . GREY . "only include tests of type <test_type> multiple -i parameters\n" . NORML;
     echo " -e <test_type> " . GREY . "exclude tests of type <test_type> multiple -e parameters\n" . NORML;
     echo " -b <bootstrap> " . GREY . "include a bootstrap file before running tests\n" . NORML;
-    echo " -x " . GREY . "            exclude code coverage information\n" . NORML;
+    echo " -c " . GREY . "            include code coverage information (generate lcov.info)\n" . NORML;
     echo " -q " . GREY . "            hide test console output (up to 3x -q -q -q)\n" . NORML;
     echo " -m " . GREY . "            set monochrome console output\n" . NORML;
     echo " -v " . GREY . "            set verboise output (stack traces)\n" . NORML;
+    echo " -s " . GREY . "            squelch php error reporting (YUCK!)\n" . NORML;
+    echo " -r " . GREY . "            display code coverage totals (assumes -c)\n" . NORML;
 }
 
 // return true if the $test_dir is in the testing path directory
@@ -203,9 +211,9 @@ function is_test_path($test_dir) : callable {
 // merge the oplog after every test adding all new counts to the overall count
 function combine_oplog(array $cov, array $newdata, array $options) : array {
     
-    // remove unit test files from oplog
+    // remove unit test files from oplog data
     $remove_element = function($item) use (&$newdata) { unset($newdata[$item]); };
-    do_for_allkey($newdata, if_then_do(is_contain($options['d'] ?? $options['f']), $remove_element));
+    do_for_allkey($newdata, if_then_do(is_not_contain($options['d'] ?? $options['f']), $remove_element));
 
     // a bit ugly...
     foreach($newdata as $file => $lines) {
@@ -228,19 +236,27 @@ function is_important_token($token) : bool {
 }
 
 // return a new function definition
-function new_line_definition(int $lineno, string $name, string $type) : array {
-    return array("start" => $lineno, "type" => $type, "end" => $lineno, "name" => $name, "hit" => HIT_MISS);
+function new_line_definition(int $lineno, string $name, string $type, int $end) : array {
+    return array("start" => $lineno, "type" => $type, "end" => $end, "name" => $name, "hit" => HIT_MISS);
 } 
 
 // find the function, branch or statement at lineno for source_listing
-function find_index_lineno_between(array $source_listing, int $lineno) : int {
-    for($i=0,$m=count($source_listing); $i<$m; $i++) {
+function find_index_lineno_between(array $source_listing, int $lineno, string $type) : int {
+    //print_r($source_listing);
+    for($i=0,$m=count($source_listing)*2; $i<$m; $i++) {
         if (!isset($source_listing[$i])) { continue; } // skip empty items
+        //echo "BETWEEN [$lineno] $type\n";
+        //if ($type == "da") { print "is between: ". $source_listing[$i]['start'] . "\n"; }
         if (between($lineno, $source_listing[$i]['start'], $source_listing[$i]['end'])) {
+           //echo "HEY FOUND [$i] $type\n";
+           //print_r($source_listing[$i]);
            return $i;
         }
+        if ($type == "da") {
+            //echo "check $lineno {$source_listing[$i]['start']} @ {$source_listing[$i]['name']} $i\n";
+        }
     }
-    return 0;
+    return -1;
 }
 
 // main lcov file format output
@@ -259,18 +275,27 @@ function format_output(string $type, array $def, int $hit) {
 
 // combine the source file mappings, with the covered lines and produce an lcov output
 function output_lcov(string $file, array $covered_lines, array $src_mapping, bool $showcoverage = false) {
+    //print_r($src_mapping);
+    //echo "output [$file]\n";
     // loop over all covered lines and update hit counts
     do_for_all_key_value($covered_lines, function($lineno, $cnt) use (&$src_mapping, $file) {
         // loop over all covered line types
         do_for_allkey($src_mapping, function($src_type) use (&$index, &$src_mapping, $lineno, &$type, $cnt) {
             // see if this line is one of our line types
-            $index = find_index_lineno_between($src_mapping[$src_type], $lineno);
+            $index = find_index_lineno_between($src_mapping[$src_type], $lineno, $src_type);
+            //echo "find [$src_type] [$lineno] - $index\n";
             // update the hit count for this line
-            if ($index > 0) { 
+            if ($index >= 0) { 
                 $src_mapping[$src_type][$index]["hit"] = min($src_mapping[$src_type][$index]["hit"], $cnt);
             }
+            /*
+            else if ($src_type == "da") {
+                print_r($src_mapping[$src_type]);
+            }
+            */
         });
     });
+    //die("done\n");
     
     $hits = array("fn" => 0, "brda" => 0, "da" => 0);
     $outputs = array("fnprefix" => "", "fn" => "", "brda" => "", "da" => "");
@@ -293,6 +318,7 @@ function output_lcov(string $file, array $covered_lines, array $src_mapping, boo
     // output to the console the coverage totals
     if ($showcoverage) {
         echo "$file\n";
+        //print_r($src_mapping['da']);
         echo "function coverage: {$hits['fn']}/".count($src_mapping['fn'])."\n";
         echo "conditional coverage: {$hits['brda']}/".count($src_mapping['brda'])."\n";
         echo "statement coverage: {$hits['da']}/".count($src_mapping['da'])."\n";
@@ -308,7 +334,7 @@ function make_source_map_from_tokens(array $tokens) {
     $lcov = array();
     foreach ($tokens as $file => $tokens) {
         $lcov[$file] = array("fn" => array(), "da" => array(), "brda" => array());
-        $fndef = new_line_definition(0, '', 'fn');
+        $fndef = new_line_definition(0, '', 'fn', 999999);
         $lastname = "";
         foreach ($tokens as $token) {
             // skip whitespace and other tokens we don't care about, as well as non tokenizable stuff
@@ -324,8 +350,8 @@ function make_source_map_from_tokens(array $tokens) {
             $src = $token[1];
             $lineno = $token[2];
 
-            if ($nm == "T_STRING" && $fndef['name'] == "") {
-                $fndef = new_line_definition($lineno, $src, "fn");
+            if ($nm == "T_STRING" && $fndef['name'] == "" && $src != "strict_types") {
+                $fndef = new_line_definition($lineno, $src, "fn", 999999);
                 array_push($lcov[$file]["fn"], $fndef);
             }
             else if ($nm == "T_FUNCTION") {
@@ -340,19 +366,19 @@ function make_source_map_from_tokens(array $tokens) {
             // handle user and system function calls
             else if ($nm == "T_STRING") {
                 if (in_array($token[1], $funcs['internal']) || in_array($token[1], $funcs['user'])) {
-                    array_push($lcov[$file]["da"], new_line_definition($lineno, "S", "da"));
+                    array_push($lcov[$file]["da"], new_line_definition($lineno, "S", "da", $lineno));
                 }
             }
             else if ($nm == "T_IF") {
-                array_push($lcov[$file]["brda"], new_line_definition($lineno, $src, "brda"));
+                array_push($lcov[$file]["brda"], new_line_definition($lineno, $src, "brda", $lineno));
             }
             else { 
-                array_push($lcov[$file]["da"], new_line_definition($lineno, "E", "da"));
+                array_push($lcov[$file]["da"], new_line_definition($lineno, "E", "da", $lineno));
             }
         }
         // add the last function definition
-        $fndef['end'] = 999999;
-        array_push($lcov[$file]["fn"], $fndef);
+        //$fndef['end'] = 999999;
+        //array_push($lcov[$file]["fn"], $fndef);
 
         // remove statement lines we have multiple tokens for
         $keep_map = array();
@@ -367,22 +393,44 @@ function make_source_map_from_tokens(array $tokens) {
 
     return $lcov;
 }
+ 
+function keep_fn($options) : callable {
+    $is_test_function_fn = function_exists("user_is_test_function") ? "user_is_test_function" : "TinyTest\\is_test_function";
+    return function($fn_name) use($options, $is_test_function_fn) : bool {
+        return $is_test_function_fn($fn_name, $options);
+    };
+}
 
 // take coverage data from oplog and convert to lcov file format
-function coverage_to_lcov(array $coverage, bool $showcoverage = false) {
+function coverage_to_lcov(array $coverage, array $options) {
 
     // read in all source files and parse the php tokens
     $tokens = array();
+    /*
+    $is_test_file_fn = function_exists("user_is_test_file") ? "user_is_test_file" : "TinyTest\\is_test_file";
+    print_r($coverage);
+    $c2 = keep_if_key($coverage, $is_test_file_fn);
+    echo "c2\n";
+    print_r($coverage);
+    keep_if_key($coverage, $is_test_file_fn);
+    */
+
+
+
+//function do_for_all_key_value_recursive(array $data, callable $fn) { foreach ($data as $key => $items) { foreach ($items as $item) { $fn($key, $item); } } }
+
     do_for_allkey($coverage, function($file) use (&$tokens) {
         $tokens[$file] = token_get_all(file_get_contents($file));
     });
 
     // convert the tokens to a source map
     $src_map = make_source_map_from_tokens($tokens);
+    //print_r($src_map);
+    //die();
     $res = "";
     // combine the coverage output with the source map and produce an lcov output
     foreach($src_map as $file => $mapping) {
-        $res .= output_lcov($file, $coverage[$file], $mapping, $showcoverage);
+        $res .= output_lcov($file, $coverage[$file], $mapping, $options['r']);
     } 
 
     return $res;
@@ -424,13 +472,19 @@ function parse_options(array $options) : array {
 
     // load test bootstrap file
     if (isset($options['b'])) { require $options['b']; }
+    // php error squelching
+    $options['s'] = isset($options['s']) ? true : false;
+    $options['c'] = isset($options['c']) ? true : false;
+    // code coverage reporting
+    $options['r'] = isset($options['r']) ? true : false;
+    if ($options['r']) { $options['c'] = true; }
 
     return $options;
 }
 
 /** MAIN ... */
 // process command line options
-$options = parse_options(getopt("b:d:f:t:i:e:qxhrv?"));
+$options = parse_options(getopt("b:d:f:t:i:e:qchrvs?"));
 init($options);
 
 // get a list of all tinytest fucntion names
@@ -441,7 +495,7 @@ unset($funcs1['internal']);
 if (isset($options['d'])) {
     load_dir($options['d'], $options);
 } else if ($options['f']) {
-    load_file($options['f']);
+    load_file($options['f'], $options);
 }
 
 // filter out test framework functions by diffing functions before and after loading test files
@@ -486,8 +540,9 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     try {
         // turn on output buffer and start the operation log for code coverage reporting
         ob_start();
-        if (!isset($options['x'])) { \phpdbg_start_oplog(); }
+        if ($options['c']) { \phpdbg_start_oplog(); }
         $data_set_name = "";
+        // run the test
         $result = run_test($function_name, $test_data, $data_set_name);
     }
     // test failures and developer test errors
@@ -496,6 +551,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     } // test generated an exception
     catch (\Exception $ex) {
         // if it was not an expected exception, test failure
+        count_assertion_fail();
         if (array_reduce($test_data['exception'], is_equal_reduced(get_class($ex)), false) === false) {
             $error = new TestError("unexpected exception", get_class($ex), join(', ', $test_data['exception']), $ex);
         }
@@ -505,91 +561,31 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
         $result = (not_quiet($options)) ? ob_get_contents() . $result : "";
         ob_end_clean();
         if ($error == null) {
-            //echo "NO RROR OK\n";
             $status = $GLOBALS['assert_count'] > $pre_test_assert_count ? "OK" : "INCOMPLETE";
             $success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
             echo $success_display_fn($result, $options, $status);
         } else {
             if ($data_set_name !== "") { $result = "failed on dataset member [$data_set_name]\n"; }
             $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
-            //echo "ERROR! [$error] \n";
             echo $error_display_fn($result, $error, $options);
         }
-        //$error_display_fn($function_name, $result, $error);
     }
+
+    // combine the oplogs...
+    if ($options['c']) {
+        $oplog = \phpdbg_end_oplog();
+        $coverage = combine_oplog($coverage, $oplog, $options);
+    }
+
 });
+
+if (count($coverage) > 0) {
+    //print_r($coverage);
+    echo "\ngenerating lcov.info...\n";
+    file_put_contents("lcov.info", coverage_to_lcov($coverage, $options));
+}
 
 // display the test results
 $m1=microtime(true);
-echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".round($m1-$m0, 6)." seconds\n";
-
-//function format_assertion_error(string $result, \Error $ex, array $options) {
-
-/*
-foreach ($funcs3 as $func_name) {
-    // exclude functions that don't match test name signature
-    if (!$is_test_fn($func_name, $options)) { continue; }
-    // read the test annotations, exclude test types
-    $test_data = read_test_data($func_name);
-    if (is_excluded_test($test_data, $options)) { continue; }
-
-    $coverage = run_test($func_name, $test_data, $options);
-}
-
-
-    // turn on output buffer and start the operation log for code coverage reporting
-    if (!isset($options['x'])) { \phpdbg_start_oplog(); }
-    ob_start();
-
-    // run the test
-    $error = null;
-    $result = "";
-    $key = "";
-    try {
-        if (isset($test_data['dataprovider'])) {
-            $data = call_user_func($test_data['dataprovider']);
-            foreach ($data as $key => $value) {
-                $result .= $func($value);
-            }
-        } else {
-            $result = $func();
-        }
-    }
-    // test failures and developer test errors
-    catch (\Error $ex) {
-        $error = $ex;
-    }
-    // test generated an exception
-    catch (\Exception $ex) {
-        // if it was not an expected exception, test failure
-        if (array_reduce($test_data['exception'], is_equal_reduced(get_class($ex)), false) === false) {
-            $error = new TestError("unexpected exception", get_class($ex), join(', ', $test_data['exception']), $ex);
-        }
-    }
-    // display the result
-    finally  {
-        $result = (!$quiet) ? ob_get_contents() . "\n$result" : "";
-        ob_end_clean();
-        if (!$error) {
-            $success_display_fn($func, $result);
-        } else {
-            if ($key !== "") { $result = "failed on dataset member [$key]\n$result"; }
-            $error_display_fn($func, $result, $error);
-        }
-    }
-
-    // code coverage
-    if (!isset($options['x'])) { 
-        $oplog = phpdbg_end_oplog();
-        unset($oplog[__FILE__]);
-        $coverage = combine_oplog($coverage, $oplog, $options);
-    }
-}
-
-if (count($coverage) > 0) {
-    echo "generating lconv.info...\n";
-    file_put_contents("../lcov.info", coverage_to_lcov($coverage, isset($options['r'])));
-}
-*/
-
+echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".round($m1-$m0, 6)." seconds\n";
 }

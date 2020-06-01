@@ -1,4 +1,5 @@
-<?php declare(strict_types=1);
+<?php
+// declare(strict_types=1);
 
 /**
  * standard php assert methods work great for tests
