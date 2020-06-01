@@ -4,13 +4,15 @@
 
 ## Features
 * Single file < 500 lines of code
-* Overideable callback functions for formatting, test selection, etc
-* Code Coverage in lcov format _requires phpdbg_
+* Override callback functions for formatting, test selection, etc
+* Code coverage in lcov format _requires phpdbg_
 * Functional style - No classes to extend
 * Supports variety of test selection methods
 * Supports expected exceptions
 * Supports data providers for processing test data and conditions
 * Generates full reports with code coverage in milliseconds
+
+
 
 #### todo
 * add multithreaded support for large test suites
@@ -23,6 +25,7 @@ or
 curl https://github.com/bitslip6/tinytest/release/r1
 ```
 
+
 ## Quick Start
 create a test under your project:
 ```
@@ -31,6 +34,7 @@ mkdir tests
 cd tests
 vim test_helloworld.php
 ```
+
 
 add the following content to your test_helloworld.php:
 ```
@@ -42,9 +46,12 @@ function test_hello_world() : string {
 }
 ```
 
+
 **run the test**
 
 tinytest.php requires phpdbg (debug php build) for code coverage reports but can be run without coverage using a standard php 7.x intrepreter.  (see installing phpdbg for additional details). tinytest contains a #! for phpdbg so you can run it as a binary (./tinytest.php) or as a php script (phpdbg ./tinytest.php)
+
+
 
 ```
 /path/to/tinytest.php -f ./tests/test_hello_world.php
@@ -57,9 +64,11 @@ generating lconv.info...
 Memory usage: 2,048KB
 ```
 
+
 ## writing tests
 tinytest was created to support testing a more functional style code.  As such the tests are simple php functions.
 
+see the examples folder for additional test info.
 
 **test setup**
 There is no predefined "setup" method.  Simply create a function and call it as needed in your test method.
