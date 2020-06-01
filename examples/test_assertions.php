@@ -4,14 +4,21 @@
  * standard php assert methods work great for tests
  */
 function test_assert() : void  {
-    assert(true, "true is not true");
+    assert_true(true, "true is not true");
+}
+
+/**
+ * tests with no asserts are marked as "incomplete"
+ */
+function test_nothing() : void {
+	$a = "an test with no asserts";
 }
 
 /**
  * a test method with an assertion error
  */
 function a_test_method() {
-    assert(false, "throw a forced assertion error");
+    assert_true(false, "throw a forced assertion error");
 }
 
 /**
@@ -19,7 +26,7 @@ function a_test_method() {
  */
 function test_nested_assert() : void  {
     a_test_method();
-    assert(true, "true is not true");
+    assert_true(true, "true is not true");
 }
 
 /**

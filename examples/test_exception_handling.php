@@ -28,3 +28,11 @@ function test_exceptions_2() : void {
         throw new AnotherException("unexpected exception");
     }
 }
+
+/**
+ * an example of failing a test with an Exception
+ */
+function test_exceptions_3() : void {
+	assert_true(true, "test passes");
+	throw new RuntimeException("test failed!\n");
+}
