@@ -1,9 +1,9 @@
 #!phpdbg -qrr
 <?php declare(strict_types=1);
 namespace TinyTest {
-define("VER", "6");
+define("VER", "8");
 
-/** BEGIN USER EDITABLE FUNCTIONS */
+/** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
 // test if a file is a test file, this should match your test filename format
 // $options command line options
 // $filename is th file to test
@@ -39,7 +39,7 @@ function format_test_success(string $test_name, string $result = null) {
 }
 
 // display the test returned string output
-function display_test_output(string $result) {
+function display_test_output(string $result = null) {
     if ($result != null) {
         $r = explode("\n", $result);
         array_walk($r, say(GREY, "  -> "));
@@ -391,7 +391,7 @@ if (file_exists("user_defined.php")) { require_once "user_defined.php"; }
 
 if (!isset($options['d']) && !isset($options['f']) || isset($options['h']) || isset($options['?'])) { die(show_usage()); }
 // verify assertion state
-warn_ifnot(ini_get("zend.assertions") == 1, "zend.assertions are disabled. set zend.assertions in php.ini");
+warn_ifnot(ini_get("zend.assertions") == 1, "zend.assertions are disabled. set zend.assertions in " . php_ini_loaded_file());
 ini_set("assert.exception", "1");
 $funcs1 = get_defined_functions(true);
 
@@ -410,7 +410,7 @@ if (isset($options['d'])) {
 $coverage = array();
 $funcs3 = array_filter(get_defined_functions(true)['user'], function($fn_name) use ($funcs1) { return !in_array($fn_name, $funcs1['user']); });
 
-$success_test_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
+$success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
 $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
 $format_test_fn = (function_exists("user_format_test_run")) ? "user_format_test_run" : "\\TinyTest\\format_test_run";
 
@@ -462,7 +462,7 @@ foreach ($funcs3 as $func) {
         $result = (!$quiet) ? ob_get_contents() . "\n$result" : $result;
         ob_end_clean();
         if (!$error) {
-            $success_test_fn($func, $result);
+            $success_display_fn($func, $result);
         } else {
             if ($key !== "") { $result = "failed on dataset member [$key]\n$result"; }
             $error_display_fn($func, $result, $error);
