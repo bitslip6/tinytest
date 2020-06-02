@@ -97,6 +97,7 @@ function startsWith(string $haystack, string $needle) { return (substr($haystack
 function endsWith(string $haystack, string $needle) { return (substr($haystack, -strlen($needle)) === $needle); } 
 function say($color = '\033[39m', $prefix = "") : callable { return function($line) use ($color, $prefix) : string { return (strlen($line) > 0) ? "{$color}{$prefix}{$line}".NORML."\n" : ""; }; } 
 function last_element(array $items, $default = "") { return (count($items) > 0) ? array_slice($items, -1, 1)[0] : $default; }
+function line_at_a_time(string $filename) : array { $r = file($filename); $result = array(); for($i=0,$m=count($r); $i<$m; $i++) { $result['line '. ($i+1)] = trim($r[$i]); } return $result; }
 
 
 // initialize the system
@@ -126,13 +127,14 @@ function init(array $options) {
 
     // squelch error reporting if requested
     error_reporting($options['s'] ? 0 : E_ALL);
+	gc_enable();
 }
 
 // load a single unit test
 function load_file(string $file, array $options) : void {
     assert(is_file($file), "test directory is not a directory");
     if (little_quiet(($options))) {
-        printf("loading test file: \033[96m%-48s\033[39m", sprintf("[%s]", $file));
+        printf("loading test file: [%s%-46s%s]", CYAN, $file, NORML);
     }
     require "$file";
     if (little_quiet(($options))) {
@@ -442,7 +444,7 @@ define("HIT_MISS", 999999999);
 // todo: add user override callback for assertion error formatting
 class TestError extends \Error {
     public function __construct(string $message, $actual, $expected, \Exception $ex = null) {
-        $formatted_msg = sprintf("%sexpected [%s%s%s] got [%s%s%s] \"%s%s%s\"", NORML, GREEN, $actual, NORML, YELLOW, $expected, NORML, RED, $message, NORML);
+        $formatted_msg = sprintf("%sexpected [%s%s%s] got [%s%s%s] \"%s%s%s\"", NORML, GREEN, $expected, NORML, YELLOW, $actual, NORML, RED, $message, NORML);
 
         parent::__construct($formatted_msg, 0, $ex);
         if ($ex !== null) {
@@ -484,7 +486,7 @@ function parse_options(array $options) : array {
 
 /** MAIN ... */
 // process command line options
-$options = parse_options(getopt("b:d:f:t:i:e:qchrvs?"));
+$options = parse_options(getopt("b:d:f:t:i:e:mqchrvs?"));
 init($options);
 
 // get a list of all tinytest fucntion names
@@ -507,24 +509,34 @@ $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_for
 $is_test_fn = (function_exists("user_is_test_function")) ? "user_is_test_function" : "TinyTest\is_test_function";
 
 // run the test
-function run_test(string $test_function, array $test_data, string &$dataset_name = "") {
-    $result = null;
+function run_test(string $test_function, array $test_data, string &$dataset_name = "", &$final_error = null) : string {
+    $result = "";
     if (isset($test_data['dataprovider'])) {
         $data = call_user_func($test_data['dataprovider']);
         foreach ($data as $dataset_name => $value) {
-            $result .= $test_function($value);
-        }
+			try {
+				if ($value === "" || $value === null) { continue; }
+            	$result .= $test_function($value);
+        	} catch (\Error | \Exception $ex) {
+				$final_error = $ex;
+				$result .= "failed [$dataset_name]";
+				$result .= (is_string($value)) ? "[$value]" : "";
+			}
+		}
+
     } else {
         $result = $test_function();
     }
 
-    return $result;
+    return ($result == null) ? "" : $result;
 }
 
 // a bit ugly
 // loop over all user included functions
 $coverage = array();
 do_for_all($just_test_functions, function($function_name) use (&$coverage, $options, $is_test_fn) {
+
+	$collected = gc_collect_cycles();
     // exclude functions that don't match test name signature
     if (!$is_test_fn($function_name, $options)) { return; }
     // read the test annotations, exclude test based on types
@@ -543,7 +555,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
         if ($options['c']) { \phpdbg_start_oplog(); }
         $data_set_name = "";
         // run the test
-        $result = run_test($function_name, $test_data, $data_set_name);
+        $result = run_test($function_name, $test_data, $data_set_name, $error);
     }
     // test failures and developer test errors
     catch (\Error $ex) {
@@ -558,14 +570,14 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     }
     // display the result
     finally  {
-        $result = (not_quiet($options)) ? ob_get_contents() . $result : "";
+        $result = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
         ob_end_clean();
         if ($error == null) {
             $status = $GLOBALS['assert_count'] > $pre_test_assert_count ? "OK" : "INCOMPLETE";
             $success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
             echo $success_display_fn($result, $options, $status);
         } else {
-            if ($data_set_name !== "") { $result = "failed on dataset member [$data_set_name]\n"; }
+            if ($data_set_name !== "") { $result .= "\nfailed on dataset member [$data_set_name]\n"; }
             $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
             echo $error_display_fn($result, $error, $options);
         }
