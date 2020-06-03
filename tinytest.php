@@ -519,7 +519,7 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
             	$result .= $test_function($value);
         	} catch (\Error | \Exception $ex) {
 				$final_error = $ex;
-				$result .= "failed [$dataset_name]";
+				$result .= "failed [$dataset_name]\n";
 				$result .= (is_string($value)) ? "[$value]" : "";
 			}
 		}
