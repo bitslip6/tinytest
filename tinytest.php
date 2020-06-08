@@ -23,20 +23,20 @@ function is_test_function(string $funcname, array $options) {
             substr($funcname, 0, 7) === "should_");
 }
 // format test success
-function format_test_success(string $result = null, array $options, string $status = "OK") : string {
+function format_test_success(string $result = null, array $options, string $status = "OK", $t0, $t1) : string {
     $out = ($status == "OK") ? GREEN : YELLOW;
     if (little_quiet($options)) {
-        $out .= " $status\n";
+        $out .= sprintf("%-12s%s in %s\n", $status, NORML, round($t1-$t0, 8));
     } else if (very_quiet($options)) {
         $out .= ".";
     }
-    return $out . display_test_output($result, $options) . NORML;
+    return $out . display_test_output($result, $options);
 }
 
 // display the test returned string output
 function display_test_output(string $result = null, array $options) {
     return ($result != null && not_quiet($options)) ?
-        GREY . substr(str_replace("\n", "\n  -> ", "\n".rtrim($result)), 1) . NORML . "\n":
+        GREY . substr(str_replace("\n", "\n  -> ", "\n".rtrim($result)), 1) . "\n" . NORML:
         "";
 }
 
@@ -46,9 +46,10 @@ function format_test_run(string $test_name, array $options) : string {
 }
 
 // format test failures , simplify?
-function format_assertion_error(string $result, \Error $ex, array $options) {
+function format_assertion_error(string $result, \Error $ex, array $options, $t0, $t1) {
+    $out = "";
     if (little_quiet($options)) {
-        $out  = RED . " error\n";
+        $out .= sprintf("%s%-12s%s in %s\n", RED, "error", NORML, round($t1-$t0, 8));
         $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "\n";
     }
     if (not_quiet($options)) {
@@ -127,6 +128,9 @@ function init(array $options) {
 
     // squelch error reporting if requested
     error_reporting($options['s'] ? 0 : E_ALL);
+    //posix_mkfifo("/tmp/tinytest", 0600);
+    @unlink("/tmp/tinytest");
+    ini_set("error_log", "/tmp/tinytest");
 	gc_enable();
 }
 
@@ -165,7 +169,7 @@ function is_excluded_test(array $test_data, array $options) {
 
 // read the test annotations
 function read_test_data(string $testname) : array {
-    $result = array('exception' => array(), 'type' => 'standard');
+    $result = array('exception' => array(), 'type' => 'standard', 'phperror' => array());
     $refFunc = new \ReflectionFunction($testname);
     $doc = $refFunc->getDocComment();
     if ($doc === false) { return $result; }
@@ -173,9 +177,11 @@ function read_test_data(string $testname) : array {
     $docs = explode("\n", $doc);
     array_walk($docs, function ($line) use (&$result) {
         $last = last_element(explode(" ", $line));
-        if (preg_match("/\@(\w+)/", $line, $matches)) {
+        if (preg_match("/\@(\w+)(.*)/", $line, $matches)) {
             if ($matches[1] === "exception") {
                 array_push($result['exception'], $last);
+            } else if ($matches[1] === "phperror") {
+                array_push($result['phperror'], $matches[2]);
             } else {
                 $result[$matches[1]] = $last;
             }
@@ -247,6 +253,7 @@ function find_index_lineno_between(array $source_listing, int $lineno, string $t
     //print_r($source_listing);
     for($i=0,$m=count($source_listing)*2; $i<$m; $i++) {
         if (!isset($source_listing[$i])) { continue; } // skip empty items
+
         //echo "BETWEEN [$lineno] $type\n";
         //if ($type == "da") { print "is between: ". $source_listing[$i]['start'] . "\n"; }
         if (between($lineno, $source_listing[$i]['start'], $source_listing[$i]['end'])) {
@@ -519,8 +526,8 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
             	$result .= $test_function($value);
         	} catch (\Error | \Exception $ex) {
 				$final_error = $ex;
-				$result .= "failed [$dataset_name]\n";
-				$result .= (is_string($value)) ? "[$value]" : "";
+				$result .= "failed [$dataset_name] ";
+				$result .= (is_string($value)) ? "[$value]\n" : "\n";
 			}
 		}
 
@@ -529,6 +536,28 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
     }
 
     return ($result == null) ? "" : $result;
+}
+
+
+// TODO: simplify...
+function get_error_log(array $errorconfig) {
+    $data = null;
+    if (file_exists(("/tmp/tinytest"))) {
+        $lines = file("/tmp/tinytest");
+        @unlink("/tmp/tinytest");
+        foreach ($lines as $line) {
+            if (count($errorconfig) > 0) {
+                foreach ($errorconfig as $config) {
+                    $type_name = explode(":", $config);
+                    if (stristr($line, $type_name[0]) && stristr($line, $type_name[1])) { continue; }
+                    return new \Error($line);
+                }
+            } else {
+                return new \Error($line);
+            }
+        }
+    }
+    return null;
 }
 
 // a bit ugly
@@ -547,7 +576,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     $format_test_fn = (function_exists("user_format_test_run")) ? "user_format_test_run" : "\\TinyTest\\format_test_run";
     echo $format_test_fn($function_name, $options);
 
-    $error = $result = null;
+    $error = $result = $t0 = $t1 = null;
     $pre_test_assert_count = $GLOBALS['assert_count'];
     try {
         // turn on output buffer and start the operation log for code coverage reporting
@@ -555,6 +584,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
         if ($options['c']) { \phpdbg_start_oplog(); }
         $data_set_name = "";
         // run the test
+        $t0 = microtime(true);
         $result = run_test($function_name, $test_data, $data_set_name, $error);
     }
     // test failures and developer test errors
@@ -570,16 +600,18 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     }
     // display the result
     finally  {
+        $t1 = microtime(true);
+        $error = ($error == null) ? get_error_log($test_data['phperror']) : $error;
         $result = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
         ob_end_clean();
         if ($error == null) {
             $status = $GLOBALS['assert_count'] > $pre_test_assert_count ? "OK" : "INCOMPLETE";
             $success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
-            echo $success_display_fn($result, $options, $status);
+            echo $success_display_fn($result, $options, $status, $t0, $t1);
         } else {
             if ($data_set_name !== "") { $result .= "\nfailed on dataset member [$data_set_name]\n"; }
             $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
-            echo $error_display_fn($result, $error, $options);
+            echo $error_display_fn($result, $error, $options, $t0 , $t1);
         }
     }
 
@@ -597,6 +629,7 @@ if (count($coverage) > 0) {
     file_put_contents("lcov.info", coverage_to_lcov($coverage, $options));
 }
 
+@unlink("/tmp/tinytest");
 // display the test results
 $m1=microtime(true);
 echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".round($m1-$m0, 6)." seconds\n";
