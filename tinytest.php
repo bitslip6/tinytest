@@ -42,7 +42,7 @@ function display_test_output(string $result = null, array $options) {
 
 // format the test running. only return data if 0 or 1 -q options
 function format_test_run(string $test_name, array $options) : string {
-    return (little_quiet($options)) ? sprintf("testing function:  %s%-48s%s ", BLUE, $test_name, NORML) : '';
+    return (little_quiet($options)) ? sprintf("testing function:  %s%-49s%s ", BLUE, $test_name, NORML) : '';
 }
 
 // format test failures , simplify?
@@ -93,7 +93,7 @@ function keep_if_key(array $data, callable $fn) { $result = $data; foreach ($dat
 function if_then_do($testfn, $action, $optionals = null) : callable { return function($argument) use ($testfn, $action, $optionals) { if ($argument && $testfn($argument, $optionals)) { $action($argument); }}; }
 function is_equal_reduced($value) : callable { return function($initial, $argument) use ($value) { return ($initial || $argument === $value); }; }
 function is_contain($value) : callable { return function($argument) use ($value) { return (strstr($argument, $value) !== false); }; }
-function is_not_contain($value) : callable { return function($argument) use ($value) { return (strstr($argument, $value) === false); }; }
+function is_not_contain($value) : callable { return function($argument) use ($value) { $r = strstr($argument, $value); $nc = $r === false; echo "test $argument !== $value ($r [$nc])\n"; return (strstr($argument, $value) === false); }; }
 function startsWith(string $haystack, string $needle) { return (substr($haystack, 0, strlen($needle)) === $needle); } 
 function endsWith(string $haystack, string $needle) { return (substr($haystack, -strlen($needle)) === $needle); } 
 function say($color = '\033[39m', $prefix = "") : callable { return function($line) use ($color, $prefix) : string { return (strlen($line) > 0) ? "{$color}{$prefix}{$line}".NORML."\n" : ""; }; } 
@@ -118,11 +118,12 @@ function init(array $options) {
     echo __FILE__ . CYAN . " Ver " . VER . NORML . "\n";
 
     // include test assertions
-    require "assertions.php";
-    if (file_exists("user_defined.php")) { require_once "user_defined.php"; }
+	$path = __DIR__ . "/assertions.php";
+    require __DIR__ . "/assertions.php";
+    if (file_exists("user_defined.php")) { include_once "user_defined.php"; }
 
     // usage help
-    if (!isset($options['d']) && !isset($options['f']) || isset($options['h']) || isset($options['?'])) { die(show_usage()); }
+    if ((!isset($options['d']) && !isset($options['f'])) || isset($options['h']) || isset($options['?'])) { die(show_usage()); }
     // set assertion state
     ini_set("assert.exception", "1");
 
@@ -221,7 +222,7 @@ function combine_oplog(array $cov, array $newdata, array $options) : array {
     
     // remove unit test files from oplog data
     $remove_element = function($item) use (&$newdata) { unset($newdata[$item]); };
-    do_for_allkey($newdata, if_then_do(is_not_contain($options['d'] ?? $options['f']), $remove_element));
+    do_for_allkey($newdata, if_then_do(is_contain($options['d'] ?? $options['f']), $remove_element));
 
     // a bit ugly...
     foreach($newdata as $file => $lines) {
@@ -251,7 +252,7 @@ function new_line_definition(int $lineno, string $name, string $type, int $end) 
 // find the function, branch or statement at lineno for source_listing
 function find_index_lineno_between(array $source_listing, int $lineno, string $type) : int {
     //print_r($source_listing);
-    for($i=0,$m=count($source_listing)*2; $i<$m; $i++) {
+    for($i=0,$m=max(array_keys($source_listing)); $i<$m; $i++) {
         if (!isset($source_listing[$i])) { continue; } // skip empty items
 
         //echo "BETWEEN [$lineno] $type\n";
@@ -284,28 +285,21 @@ function format_output(string $type, array $def, int $hit) {
 
 // combine the source file mappings, with the covered lines and produce an lcov output
 function output_lcov(string $file, array $covered_lines, array $src_mapping, bool $showcoverage = false) {
-    //print_r($src_mapping);
-    //echo "output [$file]\n";
     // loop over all covered lines and update hit counts
     do_for_all_key_value($covered_lines, function($lineno, $cnt) use (&$src_mapping, $file) {
         // loop over all covered line types
         do_for_allkey($src_mapping, function($src_type) use (&$index, &$src_mapping, $lineno, &$type, $cnt) {
             // see if this line is one of our line types
+            //echo "check $lineno [$src_type]\n";
             $index = find_index_lineno_between($src_mapping[$src_type], $lineno, $src_type);
             //echo "find [$src_type] [$lineno] - $index\n";
             // update the hit count for this line
             if ($index >= 0) { 
                 $src_mapping[$src_type][$index]["hit"] = min($src_mapping[$src_type][$index]["hit"], $cnt);
             }
-            /*
-            else if ($src_type == "da") {
-                print_r($src_mapping[$src_type]);
-            }
-            */
         });
     });
-    //die("done\n");
-    
+
     $hits = array("fn" => 0, "brda" => 0, "da" => 0);
     $outputs = array("fnprefix" => "", "fn" => "", "brda" => "", "da" => "");
     // loop over all source lines with updated hit counts and product the output format
@@ -415,27 +409,12 @@ function coverage_to_lcov(array $coverage, array $options) {
 
     // read in all source files and parse the php tokens
     $tokens = array();
-    /*
-    $is_test_file_fn = function_exists("user_is_test_file") ? "user_is_test_file" : "TinyTest\\is_test_file";
-    print_r($coverage);
-    $c2 = keep_if_key($coverage, $is_test_file_fn);
-    echo "c2\n";
-    print_r($coverage);
-    keep_if_key($coverage, $is_test_file_fn);
-    */
-
-
-
-//function do_for_all_key_value_recursive(array $data, callable $fn) { foreach ($data as $key => $items) { foreach ($items as $item) { $fn($key, $item); } } }
-
     do_for_allkey($coverage, function($file) use (&$tokens) {
         $tokens[$file] = token_get_all(file_get_contents($file));
     });
 
     // convert the tokens to a source map
     $src_map = make_source_map_from_tokens($tokens);
-    //print_r($src_map);
-    //die();
     $res = "";
     // combine the coverage output with the source map and produce an lcov output
     foreach($src_map as $file => $mapping) {
@@ -588,6 +567,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
         $result = run_test($function_name, $test_data, $data_set_name, $error);
     }
     // test failures and developer test errors
+	// TODO: add expected assertion errors
     catch (\Error $ex) {
         $error = $ex;
     } // test generated an exception
