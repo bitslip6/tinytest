@@ -160,3 +160,5 @@ Memory usage: 2,048KB
 
 As you can see there is an error in our test data, we added an extra 0 to the expected test output and produced an error.  Change 200 to 20, repeat the test and it will succeed.
 
+TODO: add /tmp/tinytest output
+
