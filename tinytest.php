@@ -72,8 +72,8 @@ function format_assertion_error(string $result, \Error $ex, array $options, $t0,
 
 
 
-// helper functions
 /** internal helper functions */
+// TODO bind options array to global option helpers...
 function not_quiet(array $options) : bool { return $options['q'] == 0; }
 function little_quiet(array $options) : bool { return $options['q'] <= 1; }
 function very_quiet(array $options) : bool { return $options['q'] == 2; }
@@ -102,11 +102,14 @@ function line_at_a_time(string $filename) : array { $r = file($filename); $resul
 
 
 // initialize the system
-function init(array $options) {
+function init(array $options) : array {
     // global state (yuck)
     global $m0;
     $m0 = microtime(true);
     $GLOBALS['assert_count'] = $GLOBALS['assert_pass_count'] = $GLOBALS['assert_fail_count'] = 0;
+
+    if ($options['i'][0] == '') { unset($options['i']); }
+    if ($options['e'][0] == '') { unset($options['e']); }
 
     // define console colors
     define("ESC", "\033");
@@ -118,7 +121,6 @@ function init(array $options) {
     echo __FILE__ . CYAN . " Ver " . VER . NORML . "\n";
 
     // include test assertions
-	$path = __DIR__ . "/assertions.php";
     require __DIR__ . "/assertions.php";
     if (file_exists("user_defined.php")) { include_once "user_defined.php"; }
 
@@ -132,7 +134,9 @@ function init(array $options) {
     //posix_mkfifo("/tmp/tinytest", 0600);
     @unlink("/tmp/tinytest");
     ini_set("error_log", "/tmp/tinytest");
-	gc_enable();
+    gc_enable();
+    
+    return $options;
 }
 
 // load a single unit test
@@ -157,15 +161,13 @@ function load_dir(string $dir, array $options) {
 
 // check if this test should be excluded, returns false if test should run
 function is_excluded_test(array $test_data, array $options) {
-    // default to inclusion
-    $test_value = $options['i'] ?? $options['e'] ?? '';
-    // match function reverses for inclusion/exclusion
-    $match_fn = isset($options['i']) ? 
-        function($v1, $v2) : bool { return $v1 === $v2; } : 
-        function($v1, $v2) : bool { return $v1 !== $v2; };
-
-    // 'type' is the test @type annotation
-    return $match_fn(array_reduce($test_value, is_equal_reduced($test_data['type']), false), true);
+    if (isset($options['i'])) {
+        return !in_array($test_data['type'], $options['i']);
+    }
+    if (isset($options['e'])) {
+        return in_array($test_data['type'], $options['e']);
+    }
+    return false; 
 }
 
 // read the test annotations
@@ -473,7 +475,7 @@ function parse_options(array $options) : array {
 /** MAIN ... */
 // process command line options
 $options = parse_options(getopt("b:d:f:t:i:e:mqchrvs?"));
-init($options);
+$options = init($options);
 
 // get a list of all tinytest fucntion names
 $funcs1 = get_defined_functions(true);
@@ -519,8 +521,10 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
 
 
 // TODO: simplify...
-function get_error_log(array $errorconfig) {
+function get_error_log(array $errorconfig, array $options) {
     $data = null;
+    
+    $verbose_out = "";
     if (file_exists(("/tmp/tinytest"))) {
         $lines = file("/tmp/tinytest");
         @unlink("/tmp/tinytest");
@@ -528,7 +532,8 @@ function get_error_log(array $errorconfig) {
             if (count($errorconfig) > 0) {
                 foreach ($errorconfig as $config) {
                     $type_name = explode(":", $config);
-                    if (stristr($line, $type_name[0]) && stristr($line, $type_name[1])) { continue; }
+                    //if (stristr($line, $type_name[0]) && stristr($line, $type_name[1])) { echo "$line"; continue; }
+                    if (stristr($line, $type_name[0]) && stristr($line, $type_name[1])) { $verbose_out .= $line; continue; }
                     return new \Error($line);
                 }
             } else {
@@ -536,6 +541,8 @@ function get_error_log(array $errorconfig) {
             }
         }
     }
+
+    if (verbose($options)) { echo $verbose_out; }
     return null;
 }
 
@@ -581,7 +588,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     // display the result
     finally  {
         $t1 = microtime(true);
-        $error = ($error == null) ? get_error_log($test_data['phperror']) : $error;
+        $error = ($error == null) ? get_error_log($test_data['phperror'], $options) : $error;
         $result = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
         ob_end_clean();
         if ($error == null) {
