@@ -3,7 +3,7 @@
 ### Because you just want to run some tests - not install a "framework"
 
 ## Features
-* Single file ~500 lines of code
+* Single file ~600 lines of code
 * Override callback functions for formatting, test selection, etc
 * Code coverage in lcov format _requires phpdbg_
 * Functional style - No classes to extend
@@ -42,7 +42,6 @@ function test_hello_world() : string {
   return "hello world!";
 }
 ```
-
 
 **run the test**
 
