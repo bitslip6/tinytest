@@ -12,10 +12,7 @@
 * Supports data providers for processing test data and conditions
 * Generates full reports with code coverage in milliseconds
 
-
-
-#### todo
-* add multithreaded support for large test suites
+[![asciicast](https://asciinema.org/a/pEnyZFEObOr2HWStjcM0SRtjb.svg)](https://asciinema.org/a/pEnyZFEObOr2HWStjcM0SRtjb)
 
 
 ## Install
@@ -195,5 +192,6 @@ Memory usage: 2,048KB
 
 As you can see there is an error in our test data, we added an extra 0 to the expected test output and produced an error.  Change 200 to 20, repeat the test and it will succeed.
 
-TODO: add /tmp/tinytest output
+#### todo
+* add multithreaded support for large test suites
 
