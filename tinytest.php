@@ -26,7 +26,7 @@ function is_test_function(string $funcname, array $options) {
 function format_test_success(string $result = null, array $options, string $status = "OK", $t0, $t1) : string {
     $out = ($status == "OK") ? GREEN : YELLOW;
     if (little_quiet($options)) {
-        $out .= sprintf("%-12s%s in %s\n", $status, NORML, round($t1-$t0, 8));
+        $out .= sprintf("%-3s%s in %s\n", $status, NORML, round($t1-$t0, 8));
     } else if (very_quiet($options)) {
         $out .= ".";
     }
@@ -41,15 +41,15 @@ function display_test_output(string $result = null, array $options) {
 }
 
 // format the test running. only return data if 0 or 1 -q options
-function format_test_run(string $test_name, array $options) : string {
-    return (little_quiet($options)) ? sprintf("testing function:  %s%-49s%s ", BLUE, $test_name, NORML) : '';
+function format_test_run(string $test_name, array $test_data, array $options) : string {
+    return (little_quiet($options)) ? sprintf("testing function:  %s%-20s/%s%-42s%s ", GREY, $test_data['type'], BLUE, $test_name, NORML) : '';
 }
 
 // format test failures , simplify?
 function format_assertion_error(string $result, \Error $ex, array $options, $t0, $t1) {
     $out = "";
     if (little_quiet($options)) {
-        $out .= sprintf("%s%-12s%s in %s\n", RED, "error", NORML, round($t1-$t0, 8));
+        $out .= sprintf("%s%-3s%s in %s\n", RED, "error", NORML, round($t1-$t0, 8));
         $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "\n";
     }
     if (not_quiet($options)) {
@@ -149,7 +149,7 @@ function init(array $options) : array {
 function load_file(string $file, array $options) : void {
     assert(is_file($file), "test directory is not a directory");
     if (little_quiet(($options))) {
-        printf("loading test file: [%s%-46s%s]", CYAN, $file, NORML);
+        printf("loading test file: [%s%-39s%s]", CYAN, $file, NORML);
     }
     include "$file";
     if (little_quiet(($options))) {
@@ -566,7 +566,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
 
     // display the test we are running
     $format_test_fn = (function_exists("user_format_test_run")) ? "user_format_test_run" : "\\TinyTest\\format_test_run";
-    echo $format_test_fn($function_name, $options);
+    echo $format_test_fn($function_name, $test_data, $options);
 
     $error = $result = $t0 = $t1 = null;
     $pre_test_assert_count = $GLOBALS['assert_count'];
