@@ -2,6 +2,7 @@
 <?php declare(strict_types=1);
 namespace TinyTest {
 define("VER", "9");
+define('YEARAGO', time() - 86400 * 365);
 
 /** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
 // test if a file is a test file, this should match your test filename format
@@ -23,14 +24,14 @@ function is_test_function(string $funcname, array $options) {
             substr($funcname, 0, 7) === "should_");
 }
 // format test success
-function format_test_success(string $result = null, array $options, string $status = "OK", $t0, $t1) : string {
-    $out = ($status == "OK") ? GREEN : YELLOW;
+function format_test_success(array $test_data, array $options, $t0, $t1) : string {
+    $out = ($test_data['status'] == "OK") ? GREEN : YELLOW;
     if (little_quiet($options)) {
-        $out .= sprintf("%-3s%s in %s\n", $status, NORML, round($t1-$t0, 8));
+        $out .= sprintf("%-3s%s in %s\n", $test_data['status'], NORML, round($t1-$t0, 6));
     } else if (very_quiet($options)) {
         $out .= ".";
     }
-    return $out . display_test_output($result, $options);
+    return $out . display_test_output($test_data['result'], $options);
 }
 
 // display the test returned string output
@@ -42,14 +43,15 @@ function display_test_output(string $result = null, array $options) {
 
 // format the test running. only return data if 0 or 1 -q options
 function format_test_run(string $test_name, array $test_data, array $options) : string {
-    return (little_quiet($options)) ? sprintf("test :  %s%-20s/%s%-42s%s ", GREY, $test_data['type'], BLUE, $test_name, NORML) : '';
+    $file = end(explode(DIRECTORY_SEPARATOR, $test_data['file']));
+    return (little_quiet($options)) ? sprintf("%s%-32s :%s%-16s/%s%-42s%s ", CYAN, $file, GREY, $test_data['type'], BLUE_BR, $test_name, NORML) : '';
 }
 
 // format test failures , simplify?
-function format_assertion_error(string $result, \Error $ex, array $options, $t0, $t1) {
+function format_assertion_error(array $test_data, \Error $ex, array $options, $t0, $t1) {
     $out = "";
     if (little_quiet($options)) {
-        $out .= sprintf("%s%-3s%s in %s\n", RED, "error", NORML, round($t1-$t0, 8));
+        $out .= sprintf("%s%-3s%s in %s\n", RED, "err", NORML, round($t1-$t0, 8));
         $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "\n";
     }
     if (not_quiet($options)) {
@@ -64,7 +66,7 @@ function format_assertion_error(string $result, \Error $ex, array $options, $t0,
     if (isset($options['v'])) {
         $out .= GREY . $ex->getTraceAsString(). NORML . "\n";
     }
-    return $out . display_test_output($result, $options);
+    return $out . display_test_output($test_data['result'], $options);
 }
 /** END USER EDITABLE FUNCTIONS */
 
@@ -80,8 +82,8 @@ function very_quiet(array $options) : bool { return $options['q'] == 2; }
 function full_quiet(array $options) : bool { return $options['q'] >= 3; }
 function verbose(array $options) : bool { return isset($options['v']); }
 function count_assertion() { $GLOBALS['assert_count']++; }
-function count_assertion_pass() { $GLOBALS['assert_pass_count']++; }
-function count_assertion_fail() { $GLOBALS['assert_fail_count']++; }
+function count_assertion_pass() { count_assertion(); $GLOBALS['assert_pass_count']++; }
+function count_assertion_fail() { count_assertion(); $GLOBALS['assert_fail_count']++; }
 function panic_if(bool $result, string $msg) {if ($result) { die($msg); }}
 function warn_ifnot(bool $result, string $msg) {if (!$result) { printf("%s%s%s\n", YELLOW, $msg, NORML); }}
 function between(int $data, int $min, int $max) { return $data >= $min && $data <= $max; }
@@ -99,6 +101,7 @@ function endsWith(string $haystack, string $needle) { return (substr($haystack, 
 function say($color = '\033[39m', $prefix = "") : callable { return function($line) use ($color, $prefix) : string { return (strlen($line) > 0) ? "{$color}{$prefix}{$line}".NORML."\n" : ""; }; } 
 function last_element(array $items, $default = "") { return (count($items) > 0) ? array_slice($items, -1, 1)[0] : $default; }
 function line_at_a_time(string $filename) : array { $r = file($filename); $result = array(); for($i=0,$m=count($r); $i<$m; $i++) { $result['line '. ($i+1)] = trim($r[$i]); } return $result; }
+function get_mtime(string $filename) : string { $st = stat($filename); $m = $st['mtime']; return strftime(($m < YEARAGO) ? "%h %y" : "%h %d", $m); }
 function fatals() { echo "\n"; fwrite(STDERR, file_get_contents("/tmp/tinytest")); }
 
 
@@ -120,7 +123,7 @@ function init(array $options) : array {
     define("ESC", "\033");
     $d = array("RED"=>0, "LRED"=>0, "CYAN"=>0, "GREEN"=>0, "BLUE"=>0, "GREY"=>0, "YELLOW"=>0, "UNDERLINE"=>0, "NORML" => 0); 
     if (!isset($options['m'])) { $d = array("RED"=>31, "LRED"=>91, "CYAN"=>36, "GREEN"=>32, "BLUE"=>34, "GREY"=>90, "YELLOW"=>33, "UNDERLINE"=>"4:3", "NORML" => 0); }
-    do_for_allkey($d, function($name) use ($d) { define($name, ESC . "[".$d[$name]."m"); });
+    do_for_allkey($d, function($name) use ($d) { define($name, ESC . "[".$d[$name]."m"); define("{$name}_BR", ESC . "[".$d[$name].";1m"); });
 
     // program info
     echo __FILE__ . CYAN . " Ver " . VER . NORML . "\n";
@@ -148,12 +151,12 @@ function init(array $options) : array {
 // load a single unit test
 function load_file(string $file, array $options) : void {
     assert(is_file($file), "test directory is not a directory");
-    if (little_quiet(($options))) {
-        printf("loading test file: [%s%-39s%s]", CYAN, $file, NORML);
+    if (verbose(($options))) {
+        printf("loading test file: [%s%-45s%s]", CYAN, $file, NORML);
     }
     include "$file";
-    if (little_quiet(($options))) {
-        echo GREEN . "  OK\n" . NORML;
+    if (verbose(($options))) {
+        echo GREEN_BR . "  OK\n" . NORML;
     }
 }
 
@@ -178,8 +181,9 @@ function is_excluded_test(array $test_data, array $options) {
 
 // read the test annotations
 function read_test_data(string $testname) : array {
-    $result = array('exception' => array(), 'type' => 'standard', 'phperror' => array());
     $refFunc = new \ReflectionFunction($testname);
+    $result = array('exception' => array(), 'type' => 'standard', 'file' => $refFunc->getFileName(), 'line' => $refFunc->getStartLine(), 'phperror' => array());
+    $result['mtime'] = get_mtime($result['file']);
     $doc = $refFunc->getDocComment();
     if ($doc === false) { return $result; }
 
@@ -586,25 +590,29 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     } // test generated an exception
     catch (\Exception $ex) {
         // if it was not an expected exception, test failure
-        count_assertion_fail();
         if (array_reduce($test_data['exception'], is_equal_reduced(get_class($ex)), false) === false) {
+            count_assertion_fail();
             $error = new TestError("unexpected exception", get_class($ex), join(', ', $test_data['exception']), $ex);
         }
     }
     // display the result
     finally  {
         $t1 = microtime(true);
-        $error = ($error == null) ? get_error_log($test_data['phperror'], $options) : $error;
-        $result = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
+        $test_data['error'] = ($error == null) ? get_error_log($test_data['phperror'], $options) : $error;
+        $test_data['result'] = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
         ob_end_clean();
         if ($error == null) {
-            $status = $GLOBALS['assert_count'] > $pre_test_assert_count ? "OK" : "INCOMPLETE";
+            $test_data['status'] = "OK";
+            if ($GLOBALS['assert_count'] === $pre_test_assert_count) {
+                count_assertion_fail();
+                $test_data['status'] = "IN";
+            }
             $success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
-            echo $success_display_fn($result, $options, $status, $t0, $t1);
+            echo $success_display_fn($test_data, $options, $t0, $t1);
         } else {
             if ($data_set_name !== "") { $result .= "\nfailed on dataset member [$data_set_name]\n"; }
             $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
-            echo $error_display_fn($result, $error, $options, $t0 , $t1);
+            echo $error_display_fn($test_data, $options, $t0 , $t1);
         }
     }
 

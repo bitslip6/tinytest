@@ -13,7 +13,7 @@ function  test_return_output() : string  {
  */
 function  test_return_output_2() : string  {
     assert_true(true, "true is not true");
-	$data = "a list of things";
+	$data = "some list";
 	return str_replace(" ", "\n", $data);
 }
 
@@ -24,5 +24,4 @@ function  test_return_output_2() : string  {
 function  test_display_output() : void  {
     assert_true(true, "true is not true");
     echo "hello world 2\n";
-    echo "hello world 3\n";
 }

@@ -2,7 +2,6 @@
 namespace {
 
     function assert_base_condition(callable $test_fn, $actual, $expected, string $message, string $output = "") {
-        TinyTest\count_assertion();
         if ($test_fn($actual, $expected) === false) {
         	TinyTest\count_assertion_fail();
 			if ($output !== "") { echo $output; }

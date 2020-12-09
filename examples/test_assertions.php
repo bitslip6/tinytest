@@ -19,7 +19,7 @@ function test_nothing() : void {
  * a test method with an assertion error
  */
 function a_test_method() {
-    assert_true(false, "throw a forced assertion error");
+    // assert_true(false, "throw a forced assertion error");
 }
 
 /**
