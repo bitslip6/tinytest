@@ -1,7 +1,7 @@
 #!phpdbg -qrr,
 <?php declare(strict_types=1);
 namespace TinyTest {
-define("VER", "8");
+define("VER", "9");
 
 /** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
 // test if a file is a test file, this should match your test filename format
@@ -99,6 +99,7 @@ function endsWith(string $haystack, string $needle) { return (substr($haystack, 
 function say($color = '\033[39m', $prefix = "") : callable { return function($line) use ($color, $prefix) : string { return (strlen($line) > 0) ? "{$color}{$prefix}{$line}".NORML."\n" : ""; }; } 
 function last_element(array $items, $default = "") { return (count($items) > 0) ? array_slice($items, -1, 1)[0] : $default; }
 function line_at_a_time(string $filename) : array { $r = file($filename); $result = array(); for($i=0,$m=count($r); $i<$m; $i++) { $result['line '. ($i+1)] = trim($r[$i]); } return $result; }
+function fatals() { echo "\n"; fwrite(STDERR, file_get_contents("/tmp/tinytest")); }
 
 
 // initialize the system
@@ -108,8 +109,12 @@ function init(array $options) : array {
     $m0 = microtime(true);
     $GLOBALS['assert_count'] = $GLOBALS['assert_pass_count'] = $GLOBALS['assert_fail_count'] = 0;
 
+    // remove empty include / exclude options
     if ($options['i'][0] == '') { unset($options['i']); }
     if ($options['e'][0] == '') { unset($options['e']); }
+    // only allow 1 include / exclude
+    $to_remove = (isset($options['i'])) ? 'e' : 'i';
+    unset($options[$to_remove]);
 
     // define console colors
     define("ESC", "\033");
@@ -135,6 +140,7 @@ function init(array $options) : array {
     @unlink("/tmp/tinytest");
     ini_set("error_log", "/tmp/tinytest");
     gc_enable();
+    register_shutdown_function("TinyTest\\fatals");
     
     return $options;
 }
@@ -145,7 +151,7 @@ function load_file(string $file, array $options) : void {
     if (little_quiet(($options))) {
         printf("loading test file: [%s%-46s%s]", CYAN, $file, NORML);
     }
-    require "$file";
+    include "$file";
     if (little_quiet(($options))) {
         echo GREEN . "  OK\n" . NORML;
     }
@@ -619,5 +625,5 @@ if (count($coverage) > 0) {
 @unlink("/tmp/tinytest");
 // display the test results
 $m1=microtime(true);
-echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".round($m1-$m0, 6)." seconds\n";
+echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".round($m1-$m0, 6)." seconds";
 }
