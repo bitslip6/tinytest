@@ -3,7 +3,7 @@
 ### Because you just want to run some tests - not install a "framework"
 
 ## Features
-* Single file < 500 lines of code
+* Single file ~500 lines of code
 * Override callback functions for formatting, test selection, etc
 * Code coverage in lcov format _requires phpdbg_
 * Functional style - No classes to extend
@@ -19,7 +19,7 @@
 
 
 ## Install
-```
+```shell
 git clone https://github.com/bitslip6/tinytest
 or
 curl https://github.com/bitslip6/tinytest/release/r1
@@ -28,7 +28,7 @@ curl https://github.com/bitslip6/tinytest/release/r1
 
 ## Quick Start
 create a test under your project:
-```
+```shellsession
 cd myproject
 mkdir tests
 cd tests
@@ -37,7 +37,7 @@ vim test_helloworld.php
 
 
 add the following content to your test_helloworld.php:
-```
+```php
 <?php declare(strict_types=1);
 
 function test_hello_world() : string {
@@ -51,9 +51,7 @@ function test_hello_world() : string {
 
 tinytest.php requires phpdbg (debug php build) for code coverage reports but can be run without coverage using a standard php 7.x intrepreter.  (see installing phpdbg for additional details). tinytest contains a #! for phpdbg so you can run it as a binary (./tinytest.php) or as a php script (phpdbg ./tinytest.php)
 
-
-
-```
+```ShellSession
 /path/to/tinytest.php -f ./tests/test_hello_world.php
 
 /home/cory/tools/tinytest/tinytest.php Ver 1
@@ -64,14 +62,13 @@ generating lconv.info...
 Memory usage: 2,048KB
 ```
 
-
 ## writing tests
-tinytest was created to support testing a more functional style code.  As such the tests are simple php functions.
+tinytest was created to support testing functional style code.  As such the tests are simple php functions.
 See the examples folder for additional test info.
 
 
 **test assertions**
-I personally prefeer using the php builtin assert() for all of my testing needs.  However, your milage may vary.  The following assertion methods are provided for you if you  choose to not use assert() (or your runtime does not enabnle zend.assertions).  These assert methods also include additional log messages to show actual vs expected. Add your own assertions to user_defined.php and tinytest will add them.  Checkout assertions.php for boilereplate.  Pull requests welcome.
+The following assertion methods are provided for you if you choose to not use the php builtin assert() (or your runtime does not enabnle zend.assertions).  These assert methods also include additional log messages to show actual vs expected and can output additional data to the console. Add your own assertions to user_defined.php and tinytest will add them.  Checkout assertions.php for boilereplate.  Pull requests welcome.
 
 * assert_ture(bool $condition, string $message)  truthy
 * assert_false(bool $condition, string $message) falsy
@@ -84,18 +81,18 @@ I personally prefeer using the php builtin assert() for all of my testing needs.
 * assert_not_contains(string $haystack, string $needle, string $message) assert needle is NOT in haystack
 * assert_icontains(string $haystack, string $needle, string $message) assert needle is in haystack ignore case
 
+```php
+<?php
+assert_true(false, "an error message", "optional log data to include on verbose output");
+```
 
 **test setup**
-There is no predefined "setup" method.  Simply create a function and call it as needed in your test method.
+There is no predefined "setup" method.  Simply create a function and call it as needed in your test file.
 _example:_
-```
+```php
 <?php declare(strict_types=1);
 
-// BOILERPLATE: get the path to the project root relative to this test class...
-if (!defined("BASE_DIR")) {
-    define('BASE_DIR', realpath(dirname(__DIR__.DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR."..".DIRECTORY_SEPARATOR)));
-}
-include_once BASE_DIR . "/path/to/file/MyObject.php";
+include_once PROJECT_PATH_DIR . "/path/to/file/MyObject.php";
 
 function setup_test() : MyObject {
     return new MyObject("constructor args");
@@ -109,22 +106,47 @@ function test_object_does_stuff() : void {
 }
 ```
 
-you can add boilerplate to a bootstrap file and add it from the command line, this will run your boilerplate bootstrap once before any test:
-./tinytest.php -b test_boilerplate.php -d ./tests
+you can add boilerplate to a bootstrap file and add it from the command line, this will run your boilerplate bootstrap once before every test file that is included:
+```shellsession
+tinytest.php -b test_boilerplate.php -d ./tests
+```
 
+## exclude / include test
+you can skip over tests by their type annotation by excluding tests with the -e command line parameter.
+you can also only run included tests by using the -i command line parameter.  Both parameters can be chained to add
+additional included or excluded test types.
+
+example:
+```php
+/**
+ * @type sql
+ */
+funtion test_db_access() : void {
+  assert_true(db_connect(), "unable to connect to the db");
+}
+```
+
+```shellsession
+tinytest.php -f my_tests.php -i sql
+tinytest.php (Ver 8)
+loading test file: [my_tests.php                            ]  OK
+testing function:  test_db_access                                    OK           in 0.08483996
+
+1 test, 1 passed, 0 failures/exceptions, using 2,048KB in 0.08483996 seconds
+```
 
 
 ## code coverage
 
-code coverage reports are generated by default when using phpdbg.  you can add code coverage to VSCode by installing the [coverage gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) VS Code plugin.  Coverage Gutters looks for the generated lcov.info files by default but this can be changed in the coverage gutters settings.  Make sure the generated lcov.info is in your project's root directory.  You probably want to add the lcov.info to your .gitignore as well.
+code coverage reports are generated by default when using phpdbg.  you can add code coverage to VSCode by installing the [coverage gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) plugin to VSCode.  Coverage Gutters looks for the generated lcov.info files by default but this can be changed in the coverage gutters settings.  Make sure the generated lcov.info is in your project's root directory.  You probably want to add the generated lcov.info to your .gitignore as well.
 
 __You can exclude code coverage reports by adding the -x command line option.__
 
 
-## createing test data
-We borrowed the @dataprovider annotation from phpunit.  To send your test data as invocation for each item in the dataset, simply add the @dataprovider annotation to your phpdoc block.
+## creating test data
+We borrowed the @dataprovider annotation from phpunit.  To send test data as invocation for each item in the dataset, simply add the @dataprovider annotation to your phpdoc block.
 
-```
+```php
 <?php declare(strict_types=1);
 
 function addition_test_data() : array {
@@ -142,9 +164,22 @@ function test_addition(array $data) : void {
   assert_eq(($data[0] + $data[1]), $data[2], "addition failed");
 }
 
+function multiplication_test_data() : array {
+  for ($i = 0; $i < 5; $i++) {
+    yield array("multiply 3 * $i" => array(3, $i, 3*$i));
+   }
+}
+
+/**
+ * @dataprovider mulitplication_test_data
+ */
+function test_mulitplication(array $data) : void {
+  assert_eq(($data[0] * $data[1]), $data[2], "multiplication failed");
+}
 ```
+
 **output:** 
-```
+```ShellSession
 tinytest/tinytest.php -f ./tests/test_hello_world.php
 tinytest/tinytest.php Ver 5
 loading test file: [./tests/test_hello_world.php]                    OK
