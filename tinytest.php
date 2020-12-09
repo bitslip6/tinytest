@@ -42,7 +42,7 @@ function display_test_output(string $result = null, array $options) {
 
 // format the test running. only return data if 0 or 1 -q options
 function format_test_run(string $test_name, array $test_data, array $options) : string {
-    return (little_quiet($options)) ? sprintf("testing function:  %s%-20s/%s%-42s%s ", GREY, $test_data['type'], BLUE, $test_name, NORML) : '';
+    return (little_quiet($options)) ? sprintf("test :  %s%-20s/%s%-42s%s ", GREY, $test_data['type'], BLUE, $test_name, NORML) : '';
 }
 
 // format test failures , simplify?
