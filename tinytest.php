@@ -28,7 +28,7 @@ function is_test_function(string $funcname, array $options) {
 function format_test_success(array $test_data, array $options, $t0, $t1) : string {
     $out = ($test_data['status'] == "OK") ? GREEN : YELLOW;
     if (little_quiet($options)) {
-        $out .= sprintf("%-3s%s in %s\n", $test_data['status'], NORML, round($t1-$t0, 6));
+        $out .= sprintf("%-3s%s in %s", $test_data['status'], NORML, number_format($t1-$t0, 5));
     } else if (very_quiet($options)) {
         $out .= ".";
     }
@@ -47,7 +47,7 @@ function format_test_run(string $test_name, array $test_data, array $options) : 
     $tmp = explode(DIRECTORY_SEPARATOR, $test_data['file']);
     $file = end($tmp);
     $file = substr($file, -32);
-    return (little_quiet($options)) ? sprintf("%s%-32s :%s%-16s/%s%-42s%s ", CYAN, $file, GREY, $test_data['type'], BLUE_BR, $test_name, NORML) : '';
+    return (little_quiet($options)) ? sprintf("\n%s%-32s :%s%-16s/%s%-42s%s ", CYAN, $file, GREY, $test_data['type'], BLUE_BR, $test_name, NORML) : '';
 }
 
 // format test failures , simplify?
@@ -55,11 +55,11 @@ function format_assertion_error(array $test_data, array $options, $t0, $t1) {
     $out = "";
     $ex = $test_data['error'];
     if (little_quiet($options)) {
-        $out .= sprintf("%s%-3s%s in %s\n", RED, "err", NORML, round($t1-$t0, 8));
-        $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "\n";
+        $out .= sprintf("%s%-3s%s in %s", RED, "err", NORML, number_format($t1-$t0, 5));
+        $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "";
     }
     if (not_quiet($options)) {
-        $out .= LRED . "  " . $ex->getMessage() . NORML . "\n" ;
+        $out .= LRED . "  " . $ex->getMessage() . NORML . "" ;
     }
     if (very_quiet($options)) { 
         $out = "E";
@@ -68,7 +68,7 @@ function format_assertion_error(array $test_data, array $options, $t0, $t1) {
         $out = "";
     } 
     if (isset($options['v'])) {
-        $out .= GREY . $ex->getTraceAsString(). NORML . "\n";
+        $out .= GREY . $ex->getTraceAsString(). NORML . "";
     }
     return $out . display_test_output($test_data['result'], $options);
 }
@@ -483,6 +483,7 @@ function parse_options(array $options) : array {
     $i = $options['i'] ?? '';
     $options['i'] = is_array($i) ? $options['i'] : array($i);
 
+    
     // force exclusion to array type
     $e = $options['e'] ?? '';
     $options['e'] = is_array($e) ? $options['e'] : array($e);
@@ -525,8 +526,8 @@ if (isset($options['d'])) {
 $just_test_functions = array_filter(get_defined_functions(true)['user'], function($fn_name) use ($funcs1) { return !in_array($fn_name, $funcs1['user']); });
 
 // display functions with userspace override
-$success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
-$error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
+//$success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
+//$error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
 $is_test_fn = (function_exists("user_is_test_function")) ? "user_is_test_function" : "TinyTest\is_test_function";
 
 // run the test (remove pass by ref)
@@ -682,7 +683,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
         } else {
             if ($data_set_name !== "") { $result .= "\nfailed on dataset member [$data_set_name]\n"; }
             $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
-            echo $error_display_fn($test_data, $error, $options, $t0 , $t1);
+            echo $error_display_fn($test_data, $options, $t0 , $t1);
         }
     }
 
@@ -703,5 +704,5 @@ if (count($coverage) > 0) {
 @unlink(ERR_OUT);
 // display the test results
 $m1=microtime(true);
-echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".round($m1-$m0, 6)." seconds";
+echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".number_format($m1-$m0, 5)." seconds";
 }
