@@ -44,14 +44,16 @@ function display_test_output(string $result = null, array $options) {
 
 // format the test running. only return data if 0 or 1 -q options
 function format_test_run(string $test_name, array $test_data, array $options) : string {
-    $parts = explode(DIRECTORY_SEPARATOR, $test_data['file']);
-    $file = end($parts);
+    $tmp = explode(DIRECTORY_SEPARATOR, $test_data['file']);
+    $file = end($tmp);
+    $file = substr($file, -32);
     return (little_quiet($options)) ? sprintf("%s%-32s :%s%-16s/%s%-42s%s ", CYAN, $file, GREY, $test_data['type'], BLUE_BR, $test_name, NORML) : '';
 }
 
 // format test failures , simplify?
-function format_assertion_error(array $test_data, \Error $ex, array $options, $t0, $t1) {
+function format_assertion_error(array $test_data, array $options, $t0, $t1) {
     $out = "";
+    $ex = $test_data['error'];
     if (little_quiet($options)) {
         $out .= sprintf("%s%-3s%s in %s\n", RED, "err", NORML, round($t1-$t0, 8));
         $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "\n";
@@ -102,7 +104,7 @@ function startsWith(string $haystack, string $needle) { return (substr($haystack
 function endsWith(string $haystack, string $needle) { return (substr($haystack, -strlen($needle)) === $needle); } 
 function say($color = '\033[39m', $prefix = "") : callable { return function($line) use ($color, $prefix) : string { return (strlen($line) > 0) ? "{$color}{$prefix}{$line}".NORML."\n" : ""; }; } 
 function last_element(array $items, $default = "") { return (count($items) > 0) ? array_slice($items, -1, 1)[0] : $default; }
-function line_at_a_time(string $filename) : array { $r = file($filename); $result = array(); for($i=0,$m=count($r); $i<$m; $i++) { $result['line '. ($i+1)] = trim($r[$i]); } return $result; }
+function line_at_a_time(string $filename) : iterable { $r = fopen($filename, 'r'); $i=0; while (($line = fgets($r)) !== false) { $i++; yield "line $i" => trim($line); } }
 function get_mtime(string $filename) : string { $st = stat($filename); $m = $st['mtime']; return strftime(($m < YEARAGO) ? "%h %y" : "%h %d", $m); }
 function fatals() { echo "\n"; if (file_exists(ERR_OUT)) { fwrite(STDERR, file_get_contents(ERR_OUT)); } }
 
@@ -184,7 +186,7 @@ function is_excluded_test(array $test_data, array $options) {
 // read the test annotations
 function read_test_data(string $testname) : array {
     $refFunc = new \ReflectionFunction($testname);
-    $result = array('exception' => array(), 'type' => 'standard', 'file' => $refFunc->getFileName(), 'line' => $refFunc->getStartLine(), 'phperror' => array());
+    $result = array('exception' => array(), 'test' => $testname, 'type' => 'standard', 'file' => $refFunc->getFileName(), 'line' => $refFunc->getStartLine(), 'phperror' => array());
     $result['mtime'] = get_mtime($result['file']);
     $doc = $refFunc->getDocComment();
     if ($doc === false) { return $result; }
@@ -221,6 +223,9 @@ function show_usage() {
     echo " -v " . GREY . "            set verboise output (stack traces)\n" . NORML;
     echo " -s " . GREY . "            squelch php error reporting (YUCK!)\n" . NORML;
     echo " -r " . GREY . "            display code coverage totals (assumes -c)\n" . NORML;
+    echo " -p " . GREY . "            save .xprof profiling tideways or xhprof profilers\n" . NORML;
+    echo " -a " . GREY . "            auto detect a bootstrap file\n" . NORML;
+    echo " -l " . GREY . "            just list tests, don't run \n" . NORML;
 }
 
 // return true if the $test_dir is in the testing path directory
@@ -458,6 +463,16 @@ class TestError extends \Error {
     }
 }
 
+function format_profile(array $data, array $options) : string {
+    foreach (array_keys($data) as $key) {
+        if (strstr($key, 'TinyTest') !== false || strstr($key, 'assert_') !== false) {
+            unset($data[$key]);
+        }
+    }
+    print_r($data);
+    return json_encode($data);
+}
+
 // coerce get_opt to something we like better...
 function parse_options(array $options) : array {
     // count quiet setting
@@ -474,19 +489,25 @@ function parse_options(array $options) : array {
 
     // load test bootstrap file
     if (isset($options['b'])) { require $options['b']; }
+    else if (isset($options['a'])) { 
+        $d = dirname(isset($options['f']) ? $options['f'] : $options['d']);
+        if (file_exists("$d/bootstrap.php")) { require "$d/bootstrap.php"; }
+    }
+
     // php error squelching
     $options['s'] = isset($options['s']) ? true : false;
     $options['c'] = isset($options['c']) ? true : false;
+    $options['l'] = isset($options['l']) ? true : false;
+    $options['p'] = isset($options['p']) ? true : false;
     // code coverage reporting
     $options['r'] = isset($options['r']) ? true : false;
     if ($options['r']) { $options['c'] = true; }
-
     return $options;
 }
 
 /** MAIN ... */
 // process command line options
-$options = parse_options(getopt("b:d:f:t:i:e:mqchrvs?"));
+$options = parse_options(getopt("b:d:f:t:i:e:pmqchrvsal?"));
 $options = init($options);
 
 // get a list of all tinytest fucntion names
@@ -508,14 +529,13 @@ $success_display_fn = (function_exists("user_format_test_success")) ? "user_form
 $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
 $is_test_fn = (function_exists("user_is_test_function")) ? "user_is_test_function" : "TinyTest\is_test_function";
 
-// run the test
+// run the test (remove pass by ref)
 function run_test(string $test_function, array $test_data, string &$dataset_name = "", &$final_error = null) : string {
     $result = "";
     if (isset($test_data['dataprovider'])) {
-        $data = call_user_func($test_data['dataprovider']);
-        foreach ($data as $dataset_name => $value) {
+        foreach (call_user_func($test_data['dataprovider']) as $dataset_name => $value) {
 			try {
-				if ($value === "" || $value === null) { continue; }
+                if ($value === "" || $value === null) { continue; }
             	$result .= $test_function($value);
         	} catch (\Error | \Exception $ex) {
 				$final_error = $ex;
@@ -527,7 +547,6 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
     } else {
         $result = $test_function();
     }
-
     return ($result == null) ? "" : $result;
 }
 
@@ -540,6 +559,7 @@ function get_error_log(array $errorconfig, array $options) {
     if (file_exists((ERR_OUT))) {
         $lines = file(ERR_OUT);
         @unlink(ERR_OUT);
+
         foreach ($lines as $line) {
             if (count($errorconfig) > 0) {
                 foreach ($errorconfig as $config) {
@@ -558,11 +578,56 @@ function get_error_log(array $errorconfig, array $options) {
     return null;
 }
 
+function output_profile(array $data, string $func_name) {
+    $all_funcs = array();
+    foreach(array_keys($data) as $key) {
+        $t = explode("==>", $key);
+        if (count($t) == 2) {
+            $all_funcs[] = $t[0];
+            $all_funcs[] = $t[1]; 
+        }
+    }
+    $funcs = array_unique($all_funcs);
+    //print_r($funcs);
+    //die();
+    //print_r($funcs);
+    foreach ($funcs as $fn) {
+        if (preg_match('#@\d+$#', $fn)) {
+            unset($funcs[$fn]);
+            continue;
+        }
+        try {
+            if (strpos($fn, '::') !== false) {
+                list($c, $f) = explode('::', $fn, 2);
+                $o = new \ReflectionMethod($c, $f);
+            } else {
+                $o = new \ReflectionFunction($fn);
+            }
+        } catch (\ReflectionException $e) {
+            unset($funcs[$fn]);
+            continue;
+        }
+        $file = $o->getFileName();
+        $line = $o->getStartLine();
+        /*if (!empty($CFG->dirroot)) {
+            $file = str_replace($CFG->dirroot, '', $file);
+        }
+        */
+        if (!empty($file) && !empty($line)) {
+            $funcs[$fn] = array('line' => $line, 'file' => $file);
+        }
+    }
+    $funcs['main()'] = array('line' => 0, 'file' => $func_name);
+    file_put_contents("$func_name.xhprof.out", json_encode($data, JSON_PRETTY_PRINT));
+    file_put_contents("$func_name.xhprof.out.map", json_encode($funcs, JSON_PRETTY_PRINT));
+}
+
 // a bit ugly
 // loop over all user included functions
 $coverage = array();
 do_for_all($just_test_functions, function($function_name) use (&$coverage, $options, $is_test_fn) {
 
+    $data_set_name = "";
 	$collected = gc_collect_cycles();
     // exclude functions that don't match test name signature
     if (!$is_test_fn($function_name, $options)) { return; }
@@ -574,14 +639,16 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     $format_test_fn = (function_exists("user_format_test_run")) ? "user_format_test_run" : "\\TinyTest\\format_test_run";
     echo $format_test_fn($function_name, $test_data, $options);
 
+    if ($options['l']) { return; }
+
     $error = $result = $t0 = $t1 = null;
     $pre_test_assert_count = $GLOBALS['assert_count'];
     try {
         // turn on output buffer and start the operation log for code coverage reporting
         ob_start();
         if ($options['c']) { \phpdbg_start_oplog(); }
-        $data_set_name = "";
         // run the test
+        if ($options['p']) { \tideways_enable(TIDEWAYS_FLAGS_MEMORY | TIDEWAYS_FLAGS_CPU); }
         $t0 = microtime(true);
         $result = run_test($function_name, $test_data, $data_set_name, $error);
     }
@@ -600,6 +667,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     // display the result
     finally  {
         $t1 = microtime(true);
+        if ($options['p']) { output_profile(tideways_disable(), $function_name); }
         $test_data['error'] = ($error == null) ? get_error_log($test_data['phperror'], $options) : $error;
         $test_data['result'] = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
         ob_end_clean();
