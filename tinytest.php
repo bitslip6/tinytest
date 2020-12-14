@@ -1,8 +1,9 @@
-#!phpdbg -qrr,
 <?php declare(strict_types=1);
 namespace TinyTest {
-define("VER", "9");
+const VER = "9";
+const ERR_OUT = "/tmp/tinytest";
 define('YEARAGO', time() - 86400 * 365);
+
 
 /** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
 // test if a file is a test file, this should match your test filename format
@@ -43,7 +44,8 @@ function display_test_output(string $result = null, array $options) {
 
 // format the test running. only return data if 0 or 1 -q options
 function format_test_run(string $test_name, array $test_data, array $options) : string {
-    $file = end(explode(DIRECTORY_SEPARATOR, $test_data['file']));
+    $parts = explode(DIRECTORY_SEPARATOR, $test_data['file']);
+    $file = end($parts);
     return (little_quiet($options)) ? sprintf("%s%-32s :%s%-16s/%s%-42s%s ", CYAN, $file, GREY, $test_data['type'], BLUE_BR, $test_name, NORML) : '';
 }
 
@@ -102,7 +104,7 @@ function say($color = '\033[39m', $prefix = "") : callable { return function($li
 function last_element(array $items, $default = "") { return (count($items) > 0) ? array_slice($items, -1, 1)[0] : $default; }
 function line_at_a_time(string $filename) : array { $r = file($filename); $result = array(); for($i=0,$m=count($r); $i<$m; $i++) { $result['line '. ($i+1)] = trim($r[$i]); } return $result; }
 function get_mtime(string $filename) : string { $st = stat($filename); $m = $st['mtime']; return strftime(($m < YEARAGO) ? "%h %y" : "%h %d", $m); }
-function fatals() { echo "\n"; fwrite(STDERR, file_get_contents("/tmp/tinytest")); }
+function fatals() { echo "\n"; if (file_exists(ERR_OUT)) { fwrite(STDERR, file_get_contents(ERR_OUT)); } }
 
 
 // initialize the system
@@ -139,9 +141,9 @@ function init(array $options) : array {
 
     // squelch error reporting if requested
     error_reporting($options['s'] ? 0 : E_ALL);
-    //posix_mkfifo("/tmp/tinytest", 0600);
-    @unlink("/tmp/tinytest");
-    ini_set("error_log", "/tmp/tinytest");
+    //posix_mkfifo(ERR_OUT, 0600);
+    @unlink("ERR_OUT");
+    ini_set("error_log", ERR_OUT);
     gc_enable();
     register_shutdown_function("TinyTest\\fatals");
     
@@ -535,9 +537,9 @@ function get_error_log(array $errorconfig, array $options) {
     $data = null;
     
     $verbose_out = "";
-    if (file_exists(("/tmp/tinytest"))) {
-        $lines = file("/tmp/tinytest");
-        @unlink("/tmp/tinytest");
+    if (file_exists((ERR_OUT))) {
+        $lines = file(ERR_OUT);
+        @unlink(ERR_OUT);
         foreach ($lines as $line) {
             if (count($errorconfig) > 0) {
                 foreach ($errorconfig as $config) {
@@ -612,7 +614,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
         } else {
             if ($data_set_name !== "") { $result .= "\nfailed on dataset member [$data_set_name]\n"; }
             $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
-            echo $error_display_fn($test_data, $options, $t0 , $t1);
+            echo $error_display_fn($test_data, $error, $options, $t0 , $t1);
         }
     }
 
@@ -630,7 +632,7 @@ if (count($coverage) > 0) {
     file_put_contents("lcov.info", coverage_to_lcov($coverage, $options));
 }
 
-@unlink("/tmp/tinytest");
+@unlink(ERR_OUT);
 // display the test results
 $m1=microtime(true);
 echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".round($m1-$m0, 6)." seconds";
