@@ -8,7 +8,7 @@ define('YEARAGO', time() - 86400 * 365);
 /** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
 // test if a file is a test file, this should match your test filename format
 // $options command line options
-// $filename is th file to test
+// $filename is the file to test
 function is_test_file(string $filename, array $options = null) : bool {
     return (startsWith($filename, "test_") && endsWith($filename, "php"));
 }
@@ -24,6 +24,7 @@ function is_test_function(string $funcname, array $options) {
             substr($funcname, 0, 3) === "it_" ||
             substr($funcname, 0, 7) === "should_");
 }
+
 // format test success
 function format_test_success(array $test_data, array $options, $t0, $t1) : string {
     $out = ($test_data['status'] == "OK") ? GREEN : YELLOW;
@@ -112,16 +113,8 @@ function fatals() { echo "\n"; if (file_exists(ERR_OUT)) { fwrite(STDERR, file_g
 // initialize the system
 function init(array $options) : array {
     // global state (yuck)
-    global $m0;
-    $m0 = microtime(true);
+    $GLOBALS['m0'] = microtime(true);
     $GLOBALS['assert_count'] = $GLOBALS['assert_pass_count'] = $GLOBALS['assert_fail_count'] = 0;
-
-    // remove empty include / exclude options
-    if ($options['i'][0] == '') { unset($options['i']); }
-    if ($options['e'][0] == '') { unset($options['e']); }
-    // only allow 1 include / exclude
-    $to_remove = (isset($options['i'])) ? 'e' : 'i';
-    unset($options[$to_remove]);
 
     // define console colors
     define("ESC", "\033");
@@ -143,7 +136,6 @@ function init(array $options) : array {
 
     // squelch error reporting if requested
     error_reporting($options['s'] ? 0 : E_ALL);
-    //posix_mkfifo(ERR_OUT, 0600);
     @unlink("ERR_OUT");
     ini_set("error_log", ERR_OUT);
     gc_enable();
@@ -155,11 +147,11 @@ function init(array $options) : array {
 // load a single unit test
 function load_file(string $file, array $options) : void {
     assert(is_file($file), "test directory is not a directory");
-    if (verbose(($options))) {
+    if (verbose($options)) {
         printf("loading test file: [%s%-45s%s]", CYAN, $file, NORML);
     }
-    include "$file";
-    if (verbose(($options))) {
+    require_once "$file";
+    if (verbose($options)) {
         echo GREEN_BR . "  OK\n" . NORML;
     }
 }
@@ -174,12 +166,8 @@ function load_dir(string $dir, array $options) {
 
 // check if this test should be excluded, returns false if test should run
 function is_excluded_test(array $test_data, array $options) {
-    if (isset($options['i'])) {
-        return !in_array($test_data['type'], $options['i']);
-    }
-    if (isset($options['e'])) {
-        return in_array($test_data['type'], $options['e']);
-    }
+    if (count($options['i']) > 0) { return !in_array($test_data['type'], $options['i']); }
+    if (count($options['e']) > 0) { return in_array($test_data['type'], $options['e']); }
     return false; 
 }
 
@@ -217,6 +205,7 @@ function show_usage() {
     echo " -i <test_type> " . GREY . "only include tests of type <test_type> multiple -i parameters\n" . NORML;
     echo " -e <test_type> " . GREY . "exclude tests of type <test_type> multiple -e parameters\n" . NORML;
     echo " -b <bootstrap> " . GREY . "include a bootstrap file before running tests\n" . NORML;
+    echo " -a " . GREY . "            auto load bootstrap.php in test directory\n" . NORML;
     echo " -c " . GREY . "            include code coverage information (generate lcov.info)\n" . NORML;
     echo " -q " . GREY . "            hide test console output (up to 3x -q -q -q)\n" . NORML;
     echo " -m " . GREY . "            set monochrome console output\n" . NORML;
@@ -224,16 +213,11 @@ function show_usage() {
     echo " -s " . GREY . "            squelch php error reporting (YUCK!)\n" . NORML;
     echo " -r " . GREY . "            display code coverage totals (assumes -c)\n" . NORML;
     echo " -p " . GREY . "            save .xprof profiling tideways or xhprof profilers\n" . NORML;
+    echo " -k " . GREY . "            save .callgrind profiling data for cachegrind profilers\n" . NORML;
     echo " -a " . GREY . "            auto detect a bootstrap file\n" . NORML;
     echo " -l " . GREY . "            just list tests, don't run \n" . NORML;
 }
 
-// return true if the $test_dir is in the testing path directory
-function is_test_path($test_dir) : callable {
-    return function($item) use($test_dir) {
-        return strstr($item, $test_dir) !== false;
-    };
-}
 
 /** BEGIN CODE COVERAGE FUNCTIONS */
 // merge the oplog after every test adding all new counts to the overall count
@@ -479,21 +463,19 @@ function parse_options(array $options) : array {
     $q = $options['q'] ?? array();
     $options['q'] = is_array($q) ? count($q) : 1;
 
+    print_r($options);
     // force inclusion to array type
-    $i = $options['i'] ?? '';
-    $options['i'] = is_array($i) ? $options['i'] : array($i);
+    $options['i'] = is_array($options['i']) ? $options['i'] : isset($options['e']) ? array($options['i']) : array();
+    $options['e'] = is_array($options['e']) ? $options['e'] : isset($options['e']) ? array($options['e']) : array();
+    if (count($options['i']) <= 0) { unset($options['i']); }
+    if (count($options['e']) <= 0) { unset($options['e']); }
 
-    
-    // force exclusion to array type
-    $e = $options['e'] ?? '';
-    $options['e'] = is_array($e) ? $options['e'] : array($e);
-
-    // load test bootstrap file
-    if (isset($options['b'])) { require $options['b']; }
-    else if (isset($options['a'])) { 
+    // load / autodetect test bootstrap file
+    if (isset($options['a'])) { 
         $d = dirname(isset($options['f']) ? $options['f'] : $options['d']);
-        if (file_exists("$d/bootstrap.php")) { require "$d/bootstrap.php"; }
+        $options['b'] = file_exists("$d/bootstrap.php") ? "$d/bootstrap.php" : $options['b'] ?? '';
     }
+    if (isset($options['b']) && strlen($options['b'] > 1) { require $options['b']; }
 
     // php error squelching
     $options['s'] = isset($options['s']) ? true : false;
@@ -508,7 +490,7 @@ function parse_options(array $options) : array {
 
 /** MAIN ... */
 // process command line options
-$options = parse_options(getopt("b:d:f:t:i:e:pmqchrvsal?"));
+$options = parse_options(getopt("b:d:f:t:i:e:pmqchrvsalk?"));
 $options = init($options);
 
 // get a list of all tinytest fucntion names
@@ -526,8 +508,6 @@ if (isset($options['d'])) {
 $just_test_functions = array_filter(get_defined_functions(true)['user'], function($fn_name) use ($funcs1) { return !in_array($fn_name, $funcs1['user']); });
 
 // display functions with userspace override
-//$success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
-//$error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
 $is_test_fn = (function_exists("user_is_test_function")) ? "user_is_test_function" : "TinyTest\is_test_function";
 
 // run the test (remove pass by ref)
@@ -536,7 +516,6 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
     if (isset($test_data['dataprovider'])) {
         foreach (call_user_func($test_data['dataprovider']) as $dataset_name => $value) {
 			try {
-                if ($value === "" || $value === null) { continue; }
             	$result .= $test_function($value);
         	} catch (\Error | \Exception $ex) {
 				$final_error = $ex;
@@ -544,7 +523,6 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
 				$result .= (is_string($value)) ? "[$value]\n" : "\n";
 			}
 		}
-
     } else {
         $result = $test_function();
     }
@@ -565,7 +543,6 @@ function get_error_log(array $errorconfig, array $options) {
             if (count($errorconfig) > 0) {
                 foreach ($errorconfig as $config) {
                     $type_name = explode(":", $config);
-                    //if (stristr($line, $type_name[0]) && stristr($line, $type_name[1])) { echo "$line"; continue; }
                     if (stristr($line, $type_name[0]) && stristr($line, $type_name[1])) { $verbose_out .= $line; continue; }
                     return new \Error($line);
                 }
@@ -589,9 +566,7 @@ function output_profile(array $data, string $func_name) {
         }
     }
     $funcs = array_unique($all_funcs);
-    //print_r($funcs);
-    //die();
-    //print_r($funcs);
+    
     foreach ($funcs as $fn) {
         if (preg_match('#@\d+$#', $fn)) {
             unset($funcs[$fn]);
@@ -610,10 +585,6 @@ function output_profile(array $data, string $func_name) {
         }
         $file = $o->getFileName();
         $line = $o->getStartLine();
-        /*if (!empty($CFG->dirroot)) {
-            $file = str_replace($CFG->dirroot, '', $file);
-        }
-        */
         if (!empty($file) && !empty($line)) {
             $funcs[$fn] = array('line' => $line, 'file' => $file);
         }
