@@ -166,8 +166,9 @@ function load_dir(string $dir, array $options) {
 
 // check if this test should be excluded, returns false if test should run
 function is_excluded_test(array $test_data, array $options) {
-    if (count($options['i']) > 0) { return !in_array($test_data['type'], $options['i']); }
-    if (count($options['e']) > 0) { return in_array($test_data['type'], $options['e']); }
+    print_r($options);
+    if (isset($options['i']) && count($options['i']) > 0) { return !in_array($test_data['type'], $options['i']); }
+    if (isset($options['e']) && count($options['e']) > 0) { return in_array($test_data['type'], $options['e']); }
     return false; 
 }
 
@@ -448,13 +449,16 @@ class TestError extends \Error {
 }
 
 function format_profile(array $data, array $options) : string {
+    array_filter($data, function($x) { echo "X: $x\n"; });
+    die();
+    /*
     foreach (array_keys($data) as $key) {
         if (strstr($key, 'TinyTest') !== false || strstr($key, 'assert_') !== false) {
             unset($data[$key]);
         }
     }
-    print_r($data);
-    return json_encode($data);
+    */
+    //return json_encode($data);
 }
 
 // coerce get_opt to something we like better...
@@ -463,9 +467,9 @@ function parse_options(array $options) : array {
     $q = $options['q'] ?? array();
     $options['q'] = is_array($q) ? count($q) : 1;
 
-    print_r($options);
+    // print_r($options);
     // force inclusion to array type
-    $options['i'] = is_array($options['i']) ? $options['i'] : isset($options['e']) ? array($options['i']) : array();
+    $options['i'] = is_array($options['i']) ? $options['i'] : isset($options['i']) ? array($options['i']) : array();
     $options['e'] = is_array($options['e']) ? $options['e'] : isset($options['e']) ? array($options['e']) : array();
     if (count($options['i']) <= 0) { unset($options['i']); }
     if (count($options['e']) <= 0) { unset($options['e']); }
@@ -475,13 +479,16 @@ function parse_options(array $options) : array {
         $d = dirname(isset($options['f']) ? $options['f'] : $options['d']);
         $options['b'] = file_exists("$d/bootstrap.php") ? "$d/bootstrap.php" : $options['b'] ?? '';
     }
-    if (isset($options['b']) && strlen($options['b'] > 1) { require $options['b']; }
+    //print_r($options);
+    //die();
+    if (isset($options['b']) && is_string($options['b']) && strlen($options['b']) > 1) { require $options['b']; }
 
     // php error squelching
     $options['s'] = isset($options['s']) ? true : false;
     $options['c'] = isset($options['c']) ? true : false;
     $options['l'] = isset($options['l']) ? true : false;
     $options['p'] = isset($options['p']) ? true : false;
+    $options['k'] = isset($options['k']) ? true : false;
     // code coverage reporting
     $options['r'] = isset($options['r']) ? true : false;
     if ($options['r']) { $options['c'] = true; }
@@ -492,6 +499,7 @@ function parse_options(array $options) : array {
 // process command line options
 $options = parse_options(getopt("b:d:f:t:i:e:pmqchrvsalk?"));
 $options = init($options);
+$options['cmd'] = join(' ', $argv);
 
 // get a list of all tinytest fucntion names
 $funcs1 = get_defined_functions(true);
@@ -556,7 +564,26 @@ function get_error_log(array $errorconfig, array $options) {
     return null;
 }
 
-function output_profile(array $data, string $func_name) {
+/*
+
+version: 1
+  2 creator: xh2cg for xhprof
+  3 cmd: Unknown PHP script
+  4 part: 1
+  5 positions: line
+  6 events: Time
+  7 summary: 748168
+  */
+
+function output_profile(array $data, string $func_name, array $options) {
+    $pre  = "version: 1\ncreator: https://github.com/bitslip6/tinytest\n";
+    $pre .= "cmd: " . $options['cmd'];
+    $pre .= "part: 1\npositions: line\nevents: Time\nsummary:"; 
+
+    echo "FN: $func_name\n";
+    print_r($data);
+    die();
+
     $all_funcs = array();
     foreach(array_keys($data) as $key) {
         $t = explode("==>", $key);
@@ -620,7 +647,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
         ob_start();
         if ($options['c']) { \phpdbg_start_oplog(); }
         // run the test
-        if ($options['p']) { \tideways_enable(TIDEWAYS_FLAGS_MEMORY | TIDEWAYS_FLAGS_CPU); }
+        if ($options['p'] || $options['k']) { \tideways_enable(TIDEWAYS_FLAGS_MEMORY | TIDEWAYS_FLAGS_CPU); }
         $t0 = microtime(true);
         $result = run_test($function_name, $test_data, $data_set_name, $error);
     }
@@ -639,7 +666,7 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     // display the result
     finally  {
         $t1 = microtime(true);
-        if ($options['p']) { output_profile(tideways_disable(), $function_name); }
+        if ($options['p'] || $options['k']) { output_profile(tideways_disable(), $function_name, $options); }
         $test_data['error'] = ($error == null) ? get_error_log($test_data['phperror'], $options) : $error;
         $test_data['result'] = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
         ob_end_clean();
