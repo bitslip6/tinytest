@@ -1,9 +1,13 @@
 <?php declare(strict_types=1);
 namespace TinyTest {
-const VER = "9";
+
+use Throwable;
+
+const VER = "10";
 const ERR_OUT = "/tmp/tinytest";
 const COVERAGE = 'c'; const TEST_FN = 't'; const SHOW_COVERAGE = 'r'; const ASSERT_CNT = 'assert_count';
 define('YEARAGO', time() - 86400 * 365);
+opcache_reset();
 
 
 /** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
@@ -17,7 +21,7 @@ function is_test_file(string $filename, array $options = null) : bool {
 // test if a function is a valid test function also limits testing to a single function
 // $funcname - function name to test
 // $options - command line options
-function is_test_function(string $funcname, array $options) {
+function is_test_function(string $funcname, array $options) : bool {
     if (isset($options[TEST_FN])) {
         return $funcname == $options[TEST_FN];
     }
@@ -27,12 +31,12 @@ function is_test_function(string $funcname, array $options) {
 }
 
 // format test success
-function format_test_success(array $test_data, array $options, $t0, $t1) : string {
+function format_test_success(array $test_data, array $options, float $time) : string {
     $out = ($test_data['status'] == "OK") ? GREEN : YELLOW;
     if (little_quiet($options)) {
-        $out .= sprintf("%-3s%s in %s", $test_data['status'], NORML, number_format($t1-$t0, 5));
+        $out .= sprintf("%-3s%s in %s", $test_data['status'], NORML, number_format($time, 5));
     } else if (very_quiet($options)) {
-        $out .= ".";
+        $out .= "." . NORML;
     }
     return $out . display_test_output($test_data['result'], $options);
 }
@@ -53,11 +57,11 @@ function format_test_run(string $test_name, array $test_data, array $options) : 
 }
 
 // format test failures , simplify?
-function format_assertion_error(array $test_data, array $options, $t0, $t1) {
+function format_assertion_error(array $test_data, array $options, float $time) {
     $out = "";
     $ex = $test_data['error'];
-    if (little_quiet($options)) {
-        $out .= sprintf("%s%-3s%s in %s", RED, "err", NORML, number_format($t1-$t0, 5));
+    if (little_quiet($options) && $ex !== null) {
+        $out .= sprintf("%s%-3s%s in %s\n", RED, "err", NORML, number_format($time, 5));
         $out .= YELLOW . "  " . $ex->getFile() . NORML . ":" . $ex->getLine() . "";
     }
     if (not_quiet($options)) {
@@ -108,6 +112,8 @@ function say($color = '\033[39m', $prefix = "") : callable { return function($li
 function last_element(array $items, $default = "") { return (count($items) > 0) ? array_slice($items, -1, 1)[0] : $default; }
 function line_at_a_time(string $filename) : iterable { $r = fopen($filename, 'r'); $i=0; while (($line = fgets($r)) !== false) { $i++; yield "line $i" => trim($line); } }
 function get_mtime(string $filename) : string { $st = stat($filename); $m = $st['mtime']; return strftime(($m < YEARAGO) ? "%h %y" : "%h %d", $m); }
+function all_match(array $data, callable $fn, bool $match = true) : bool { foreach($data as $elm) { if ($fn($elm) !== $match) { return !$match; } } return $match; }
+function any_match(array $data, callable $fn) : bool { return all_match($data, $fn, false); }
 function fatals() { echo "\n"; if (file_exists(ERR_OUT)) { fwrite(STDERR, file_get_contents(ERR_OUT)); } }
 
 
@@ -123,7 +129,7 @@ function init(array $options) : array {
     if (!isset($options['m'])) { $d = array("RED"=>31, "LRED"=>91, "CYAN"=>36, "GREEN"=>32, "BLUE"=>34, "GREY"=>90, "YELLOW"=>33, "UNDERLINE"=>"4:3", "NORML" => 0); }
     do_for_allkey($d, function($name) use ($d) { define($name, ESC . "[".$d[$name]."m"); define("{$name}_BR", ESC . "[".$d[$name].";1m"); });
 
-    // program info
+    // program inffails o
     echo __FILE__ . CYAN . " Ver " . VER . NORML . "\n";
 
     // include test assertions
@@ -140,14 +146,17 @@ function init(array $options) : array {
     @unlink("ERR_OUT");
     ini_set("error_log", ERR_OUT);
     gc_enable();
-    register_shutdown_function("TinyTest\\fatals");
+
+    // trying to read error log fails in shutdown fails if we are monitoring code coverage...
+    if (!$options[COVERAGE]) { register_shutdown_function("TinyTest\\fatals"); }
+    else { ini_set('memory_limit','512M'); }
     
     return $options;
 }
 
 // load a single unit test
 function load_file(string $file, array $options) : void {
-    assert(is_file($file), "test directory is not a directory");
+    assert(is_file($file), "test file [$file] does not exist");
     if (verbose($options)) {
         printf("loading test file: [%s%-45s%s]", CYAN, $file, NORML);
     }
@@ -173,10 +182,10 @@ function is_excluded_test(array $test_data, array $options) {
     return false; 
 }
 
-// read the test annotations
-function read_test_data(string $testname) : array {
+// read the test annotations, returns an array with all annotations
+function read_test_annotations(string $testname) : array {
     $refFunc = new \ReflectionFunction($testname);
-    $result = array('exception' => array(), 'test' => $testname, 'type' => 'standard', 'file' => $refFunc->getFileName(), 'line' => $refFunc->getStartLine(), 'phperror' => array());
+    $result = array('exception' => array(), 'test' => $testname, 'type' => 'standard', 'file' => $refFunc->getFileName(), 'line' => $refFunc->getStartLine(), 'error' => '', 'phperror' => array());
     $result['mtime'] = get_mtime($result['file']);
     $doc = $refFunc->getDocComment();
     if ($doc === false) { return $result; }
@@ -216,6 +225,7 @@ function show_usage() {
     echo " -r " . GREY . "            display code coverage totals (assumes -c)\n" . NORML;
     echo " -p " . GREY . "            save xhprof profiling tideways or xhprof profilers\n" . NORML;
     echo " -k " . GREY . "            save callgrind profiling data for cachegrind profilers\n" . NORML;
+    echo " -w " . GREY . "            use wall time for callgrind output (default cpu)\n" . NORML;
     echo " -l " . GREY . "            just list tests, don't run\n" . NORML;
 }
 
@@ -324,7 +334,7 @@ function output_lcov(string $file, array $covered_lines, array $src_mapping, boo
 
     // output to the console the coverage totals
     if ($showcoverage) {
-        echo "$file\n";
+        echo "$file " . GREEN . round((intval($hits['da']) / count($src_mapping['da'])) * 100) . " % " . NORML . "\n";
         echo "function coverage: {$hits['fn']}/".count($src_mapping['fn'])."\n";
         echo "conditional coverage: {$hits['brda']}/".count($src_mapping['brda'])."\n";
         echo "statement coverage: {$hits['da']}/".count($src_mapping['da'])."\n";
@@ -432,6 +442,7 @@ define("HIT_MISS", 999999999);
 // internal assert errors.  handle getting correct file and line number.  formatting for assertion error
 // todo: add user override callback for assertion error formatting
 class TestError extends \Error {
+    public $test_data;
     public function __construct(string $message, $actual, $expected, \Exception $ex = null) {
         $formatted_msg = sprintf("%sexpected [%s%s%s] got [%s%s%s] \"%s%s%s\"", NORML, GREEN, $expected, NORML, YELLOW, $actual, NORML, RED, $message, NORML);
 
@@ -490,12 +501,12 @@ function parse_options(array $options) : array {
 
     // php error squelching
     $options['s'] = isset($options['s']) ? true : false;
-    $options[COVERAGE] = isset($options[COVERAGE]) ? true : false;
     $options['l'] = isset($options['l']) ? true : false;
     $options['p'] = isset($options['p']) ? true : false;
     $options['k'] = isset($options['k']) ? true : false;
     $options['cost'] = isset($options['w']) ? 'wt' : 'cpu';
     // code coverage reporting
+    $options[COVERAGE] = isset($options[COVERAGE]) ? true : false;
     $options[SHOW_COVERAGE] = isset($options[SHOW_COVERAGE]) ? true : false;
     if ($options[SHOW_COVERAGE]) { $options[COVERAGE] = true; }
     return $options;
@@ -503,7 +514,7 @@ function parse_options(array $options) : array {
 
 /** MAIN ... */
 // process command line options
-$options = parse_options(getopt("b:d:f:t:i:e:pmqchrvsalk?"));
+$options = parse_options(getopt("b:d:f:t:i:e:pmqchrvsalkw?"));
 $options = init($options);
 $options['cmd'] = join(' ', $argv);
 
@@ -524,30 +535,63 @@ $just_test_functions = array_filter(get_defined_functions(true)['user'], functio
 // display functions with userspace override
 $is_test_fn = (function_exists("user_is_test_function")) ? "user_is_test_function" : "TinyTest\is_test_function";
 
+class TestResult {
+    public $error = null;
+    public $pass = false;
+    public $result = "";
+    public $console = "";
+    public function set_error(\Throwable $error) { $this->error = $error; }
+    public function set_result($output) { $this->result = $output; }
+    public function set_console($output) { $this->console = $output; }
+    public function pass() { $this->pass = true; }
+}
+
+function do_test(callable $test_function, array $exceptions, ?string $dataset_name, $value) : TestResult {
+    $result = new TestResult();
+    try {
+        ob_start();
+        if ($value !== null) {
+            $result->set_result($test_function($value));
+        } else {
+            $result->set_result($test_function());
+        }
+        $result->pass();
+    } catch (TestError $err) {
+        $err->test_data = $dataset_name;
+        $result->set_error($err);
+    } catch (Throwable $ex) {
+        if (array_reduce($exceptions, is_equal_reduced(get_class($ex)), false) === false) {
+            count_assertion_fail();
+            $err = new TestError("unexpected exception [$dataset_name] [$value]", get_class($ex), join(', ', $exceptions));
+            $result->set_error($err);
+        } else {
+            $result->pass();
+        }
+    } finally {
+        $result->set_console(ob_get_contents());
+        ob_end_clean();
+    }
+    return $result;
+}
+
 // run the test (remove pass by ref)
-function run_test(string $test_function, array $test_data, string &$dataset_name = "", &$final_error = null) : string {
-    $result = "";
+function run_test(callable $test_function, array $test_data) : array {
+    $results = array();
     if (isset($test_data['dataprovider'])) {
         foreach (call_user_func($test_data['dataprovider']) as $dataset_name => $value) {
-			try {
-            	$result .= $test_function($value);
-        	} catch (\Error | \Exception $ex) {
-				$final_error = $ex;
-				$result .= "failed [$dataset_name] ";
-				$result .= (is_string($value)) ? "[$value]\n" : "\n";
-			}
-		}
+            $result = do_test($test_function, $test_data['exception'], $dataset_name, $value);
+            $results[] = $result;
+        }
     } else {
-        $result = $test_function();
+        $results[] = do_test($test_function, $test_data['exception'], null, null);
     }
-    return ($result == null) ? "" : $result;
+
+    return $results;
 }
 
 
 // TODO: simplify, maybe add an error handler and skip the error file...
-function get_error_log(array $errorconfig, array $options) {
-    $data = null;
-    
+function get_error_log(array $errorconfig, array $options) : ?\Error {
     $verbose_out = "";
     if (file_exists((ERR_OUT))) {
         $lines = file(ERR_OUT);
@@ -557,7 +601,7 @@ function get_error_log(array $errorconfig, array $options) {
             if (count($errorconfig) > 0) {
                 foreach ($errorconfig as $config) {
                     $type_name = explode(":", $config);
-                    if (stristr($line, $type_name[0]) && stristr($line, $type_name[1])) { $verbose_out .= $line; continue; }
+                    if (stripos($line, $type_name[0]) !== false && stripos($line, $type_name[1]) !== false) { $verbose_out .= $line; continue; }
                     return new \Error($line);
                 }
             } else {
@@ -607,6 +651,10 @@ version: 1
   */
 
 function output_profile(array $data, string $func_name, array $options) {
+    if ($options['p']) {
+        return file_put_contents("$func_name.xhprof.json", json_encode($data, JSON_PRETTY_PRINT));
+    }
+
     $pre  = "version: 1\ncreator: https://github.com/bitslip6/tinytest\ncmd: {$options['cmd']}\npart: 1\npositions: line\nevents: Time\nsummary: "; 
 
     // remove internal functions
@@ -634,7 +682,7 @@ function output_profile(array $data, string $func_name, array $options) {
     $sum = 0;
     array_walk($fn_list, function($x, $fn_name) use (&$out, &$sum) {
         $out .= sprintf("fl=%s\nfn=%s\n%d %d\n", $x['file'], $x['fn'], $x['line'], $x['cost']);
-        $sum += $x['cost'];
+        //$sum += $x['cost'];
         foreach ($x['calls'] as $call) {
             $out .= sprintf("cfl=%s\ncfn=%s\ncalls=%d %d\n%d %d\n", $call['file'], $call['fn'], $call['count'], $call['line'], $x['line'], $call['cost']);
             $sum += $call['cost'];
@@ -644,7 +692,6 @@ function output_profile(array $data, string $func_name, array $options) {
     
     file_put_contents("callgrind.$func_name", $pre . $sum . "\n\n". $out);
     return;
-    file_put_contents("$func_name.xhprof.out", json_encode($data, JSON_PRETTY_PRINT));
 }
 
 // a bit ugly
@@ -653,71 +700,64 @@ $coverage = array();
 do_for_all($just_test_functions, function($function_name) use (&$coverage, $options, $is_test_fn) {
 
     $data_set_name = "";
-	$collected = gc_collect_cycles();
     // exclude functions that don't match test name signature
     if (!$is_test_fn($function_name, $options)) { return; }
     // read the test annotations, exclude test based on types
-    $test_data = read_test_data($function_name);
+    $test_data = read_test_annotations($function_name);
     if (is_excluded_test($test_data, $options)) { return; }
 
     // display the test we are running
     $format_test_fn = (function_exists("user_format_test_run")) ? "user_format_test_run" : "\\TinyTest\\format_test_run";
     echo $format_test_fn($function_name, $test_data, $options);
 
+    // only list tests
     if ($options['l']) { return; }
     $error = $result = $t0 = $t1 = null;
     $pre_test_assert_count = $GLOBALS[ASSERT_CNT];
-    try {
-        // turn on output buffer and start the operation log for code coverage reporting
-        ob_start();
-        if ($options[COVERAGE]) { \phpdbg_start_oplog(); }
-        // run the test
-        if ($options['p'] || $options['k']) { \tideways_enable(TIDEWAYS_FLAGS_MEMORY | TIDEWAYS_FLAGS_CPU); }
-        $t0 = microtime(true);
-        $result = run_test($function_name, $test_data, $data_set_name, $error);
-    }
-    // test failures and developer test errors
-	// TODO: add expected assertion errors
-    catch (\Error $ex) {
-        $error = $ex;
-    } // test generated an exception
-    catch (\Exception $ex) {
-        // if it was not an expected exception, test failure
-        if (array_reduce($test_data['exception'], is_equal_reduced(get_class($ex)), false) === false) {
-            count_assertion_fail();
-            $error = new TestError("unexpected exception", get_class($ex), join(', ', $test_data['exception']), $ex);
-        }
-    }
-    // display the result
-    finally  {
-        $t1 = microtime(true);
-        // die("OP\n");
-        if ($options['p'] || $options['k']) { output_profile(tideways_disable(), $function_name, $options); }
-        $test_data['error'] = ($error == null) ? get_error_log($test_data['phperror'], $options) : $error;
-        $test_data['result'] = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
-        ob_end_clean();
-        if ($error == null) {
-            $test_data['status'] = "OK";
-            if ($GLOBALS[ASSERT_CNT] === $pre_test_assert_count) {
-                count_assertion_fail();
-                $test_data['status'] = "IN";
-            }
-            $success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
-            echo $success_display_fn($test_data, $options, $t0, $t1);
-        } else {
-            if ($data_set_name !== "") { $result .= "\nfailed on dataset member [$data_set_name]\n"; }
-            $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
-            echo $error_display_fn($test_data, $options, $t0 , $t1);
-        }
-    }
+
+    // turn on output buffer and start the operation log for code coverage reporting
+    if ($options[COVERAGE]) { \phpdbg_start_oplog(); }
+    // run the test
+    if ($options['p'] || $options['k']) { \tideways_enable(TIDEWAYS_FLAGS_MEMORY | TIDEWAYS_FLAGS_CPU); }
+    $t0 = microtime(true);
+    $results = run_test($function_name, $test_data, $options);
+    $t1 = microtime(true);
+    if ($options['p'] || $options['k']) { output_profile(\tideways_disable(), $function_name, $options); }
 
     // combine the oplogs...
     if ($options[COVERAGE]) {
-        dbg($options);
-        $oplog = \phpdbg_end_oplog();
-        $coverage = combine_oplog($coverage, $oplog, $options);
+        $coverage = combine_oplog($coverage, \phpdbg_end_oplog(), $options);
     }
 
+
+    // did the test pass?
+    $passed = all_match($results, function(TestResult $result) { return $result->pass; });
+
+    $test_data['result'] = array_reduce($results, function(string $out, TestResult $result) { return $out . $result->result; }, "");
+    $console = array_reduce($results, function(string $out, TestResult $result) { return $out . $result->console; }, "");
+    if (verbose($options) && $console !== "") { $test_data["result"] .= "\nconsole output:\n$console"; }
+
+
+    $test_data['error'] = (!$passed) ? 
+        array_reduce($results, function($last_error, TestResult $result) { return (!$result->pass) ? $result->error : $last_error; }, null) :
+        get_error_log($test_data['phperror'], $options);
+
+    if ($passed) {
+        $test_data['status'] = "OK";
+        if ($GLOBALS[ASSERT_CNT] === $pre_test_assert_count) {
+            count_assertion_fail();
+            $test_data['status'] = "IN";
+        }
+        $success_display_fn = (function_exists("user_format_test_success")) ? "user_format_test_success" : "\\TinyTest\\format_test_success";
+        echo $success_display_fn($test_data, $options, $t1-$t0);
+    } else {
+        if ($data_set_name !== "") { $result .= "\nfailed on dataset member [$data_set_name]\n"; }
+        $error_display_fn = (function_exists("user_format_assertion_error")) ? "user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
+        echo $error_display_fn($test_data, $options, $t1-$t0);
+    }
+
+    
+	gc_collect_cycles();
 });
 
 if (count($coverage) > 0) {
@@ -729,5 +769,5 @@ if (count($coverage) > 0) {
 @unlink(ERR_OUT);
 // display the test results
 $m1=microtime(true);
-echo "\n".$GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".number_format($m1-$m0, 5)." seconds";
+echo "\n".NORML.$GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".number_format($m1-$m0, 5)." seconds";
 }
