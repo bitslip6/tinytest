@@ -2,6 +2,7 @@
 namespace TinyTest {
 const VER = "9";
 const ERR_OUT = "/tmp/tinytest";
+const COVERAGE = 'c'; const TEST_FN = 't'; const SHOW_COVERAGE = 'r'; const ASSERT_CNT = 'assert_count';
 define('YEARAGO', time() - 86400 * 365);
 
 
@@ -10,15 +11,15 @@ define('YEARAGO', time() - 86400 * 365);
 // $options command line options
 // $filename is the file to test
 function is_test_file(string $filename, array $options = null) : bool {
-    return (startsWith($filename, "test_") && endsWith($filename, "php"));
+    return (starts_with($filename, "test_") && ends_with($filename, "php"));
 }
 
 // test if a function is a valid test function also limits testing to a single function
 // $funcname - function name to test
 // $options - command line options
 function is_test_function(string $funcname, array $options) {
-    if (isset($options['t'])) {
-        return $funcname == $options['t'];
+    if (isset($options[TEST_FN])) {
+        return $funcname == $options[TEST_FN];
     }
     return (substr($funcname, 0, 5) === "test_" ||
             substr($funcname, 0, 3) === "it_" ||
@@ -74,19 +75,20 @@ function format_assertion_error(array $test_data, array $options, $t0, $t1) {
     return $out . display_test_output($test_data['result'], $options);
 }
 /** END USER EDITABLE FUNCTIONS */
-
 // assertion functions located in assertion.php
 
 
 
 /** internal helper functions */
 // TODO bind options array to global option helpers...
+function dbg($x) { print_r($x); die(); }
+function partial(callable $fn, ...$args) : callable { return function(...$x) use ($fn, $args) { return $fn(...array_merge($args, $x)); }; }
 function not_quiet(array $options) : bool { return $options['q'] == 0; }
 function little_quiet(array $options) : bool { return $options['q'] <= 1; }
 function very_quiet(array $options) : bool { return $options['q'] == 2; }
 function full_quiet(array $options) : bool { return $options['q'] >= 3; }
 function verbose(array $options) : bool { return isset($options['v']); }
-function count_assertion() { $GLOBALS['assert_count']++; }
+function count_assertion() { $GLOBALS[ASSERT_CNT]++; }
 function count_assertion_pass() { count_assertion(); $GLOBALS['assert_pass_count']++; }
 function count_assertion_fail() { count_assertion(); $GLOBALS['assert_fail_count']++; }
 function panic_if(bool $result, string $msg) {if ($result) { die($msg); }}
@@ -96,13 +98,12 @@ function do_for_all(array $data, callable $fn) { foreach ($data as $item) { $fn(
 function do_for_allkey(array $data, callable $fn) { foreach ($data as $key => $item) { $fn($key); } }
 function do_for_all_key_value(array $data, callable $fn) { foreach ($data as $key => $item) { $fn($key, $item); } }
 function do_for_all_key_value_recursive(array $data, callable $fn) { foreach ($data as $key => $items) { foreach ($items as $item) { $fn($key, $item); } } }
-function keep_if_key(array $data, callable $fn) { $result = $data; foreach ($data as $key => $item) { if (!$fn($key)) { unset($result[$key]); } return $result; }}
+function array_map_assoc(callable $f, array $a) { return array_column(array_map($f, array_keys($a), $a), 1, 0); }
 function if_then_do($testfn, $action, $optionals = null) : callable { return function($argument) use ($testfn, $action, $optionals) { if ($argument && $testfn($argument, $optionals)) { $action($argument); }}; }
 function is_equal_reduced($value) : callable { return function($initial, $argument) use ($value) { return ($initial || $argument === $value); }; }
 function is_contain($value) : callable { return function($argument) use ($value) { return (strstr($argument, $value) !== false); }; }
-function is_not_contain($value) : callable { return function($argument) use ($value) { $r = strstr($argument, $value); $nc = $r === false; echo "test $argument !== $value ($r [$nc])\n"; return (strstr($argument, $value) === false); }; }
-function startsWith(string $haystack, string $needle) { return (substr($haystack, 0, strlen($needle)) === $needle); } 
-function endsWith(string $haystack, string $needle) { return (substr($haystack, -strlen($needle)) === $needle); } 
+function starts_with(string $haystack, string $needle) { return (substr($haystack, 0, strlen($needle)) === $needle); } 
+function ends_with(string $haystack, string $needle) { return (substr($haystack, -strlen($needle)) === $needle); } 
 function say($color = '\033[39m', $prefix = "") : callable { return function($line) use ($color, $prefix) : string { return (strlen($line) > 0) ? "{$color}{$prefix}{$line}".NORML."\n" : ""; }; } 
 function last_element(array $items, $default = "") { return (count($items) > 0) ? array_slice($items, -1, 1)[0] : $default; }
 function line_at_a_time(string $filename) : iterable { $r = fopen($filename, 'r'); $i=0; while (($line = fgets($r)) !== false) { $i++; yield "line $i" => trim($line); } }
@@ -114,7 +115,7 @@ function fatals() { echo "\n"; if (file_exists(ERR_OUT)) { fwrite(STDERR, file_g
 function init(array $options) : array {
     // global state (yuck)
     $GLOBALS['m0'] = microtime(true);
-    $GLOBALS['assert_count'] = $GLOBALS['assert_pass_count'] = $GLOBALS['assert_fail_count'] = 0;
+    $GLOBALS[ASSERT_CNT] = $GLOBALS['assert_pass_count'] = $GLOBALS['assert_fail_count'] = 0;
 
     // define console colors
     define("ESC", "\033");
@@ -166,7 +167,7 @@ function load_dir(string $dir, array $options) {
 
 // check if this test should be excluded, returns false if test should run
 function is_excluded_test(array $test_data, array $options) {
-    print_r($options);
+    //print_r($options);
     if (isset($options['i']) && count($options['i']) > 0) { return !in_array($test_data['type'], $options['i']); }
     if (isset($options['e']) && count($options['e']) > 0) { return in_array($test_data['type'], $options['e']); }
     return false; 
@@ -203,20 +204,19 @@ function show_usage() {
     echo " -d <directory> " . GREY . "load all tests in directory\n" . NORML;
     echo " -f <file>      " . GREY . "load all tests in file\n". NORML;
     echo " -t <test_name> " . GREY . "run just the test named test_name\n" . NORML;
-    echo " -i <test_type> " . GREY . "only include tests of type <test_type> multiple -i parameters\n" . NORML;
-    echo " -e <test_type> " . GREY . "exclude tests of type <test_type> multiple -e parameters\n" . NORML;
+    echo " -i <test_type> " . GREY . "only include tests of type <test_type> support multiple -i\n" . NORML;
+    echo " -e <test_type> " . GREY . "exclude tests of type <test_type> support multiple -e\n" . NORML;
     echo " -b <bootstrap> " . GREY . "include a bootstrap file before running tests\n" . NORML;
-    echo " -a " . GREY . "            auto load bootstrap.php in test directory\n" . NORML;
+    echo " -a " . GREY . "            auto load a bootstrap file in test directory\n" . NORML;
     echo " -c " . GREY . "            include code coverage information (generate lcov.info)\n" . NORML;
     echo " -q " . GREY . "            hide test console output (up to 3x -q -q -q)\n" . NORML;
     echo " -m " . GREY . "            set monochrome console output\n" . NORML;
     echo " -v " . GREY . "            set verboise output (stack traces)\n" . NORML;
-    echo " -s " . GREY . "            squelch php error reporting (YUCK!)\n" . NORML;
+    echo " -s " . GREY . "            squelch php error reporting\n" . NORML;
     echo " -r " . GREY . "            display code coverage totals (assumes -c)\n" . NORML;
-    echo " -p " . GREY . "            save .xprof profiling tideways or xhprof profilers\n" . NORML;
-    echo " -k " . GREY . "            save .callgrind profiling data for cachegrind profilers\n" . NORML;
-    echo " -a " . GREY . "            auto detect a bootstrap file\n" . NORML;
-    echo " -l " . GREY . "            just list tests, don't run \n" . NORML;
+    echo " -p " . GREY . "            save xhprof profiling tideways or xhprof profilers\n" . NORML;
+    echo " -k " . GREY . "            save callgrind profiling data for cachegrind profilers\n" . NORML;
+    echo " -l " . GREY . "            just list tests, don't run\n" . NORML;
 }
 
 
@@ -325,7 +325,6 @@ function output_lcov(string $file, array $covered_lines, array $src_mapping, boo
     // output to the console the coverage totals
     if ($showcoverage) {
         echo "$file\n";
-        //print_r($src_mapping['da']);
         echo "function coverage: {$hits['fn']}/".count($src_mapping['fn'])."\n";
         echo "conditional coverage: {$hits['brda']}/".count($src_mapping['brda'])."\n";
         echo "statement coverage: {$hits['da']}/".count($src_mapping['da'])."\n";
@@ -422,7 +421,7 @@ function coverage_to_lcov(array $coverage, array $options) {
     $res = "";
     // combine the coverage output with the source map and produce an lcov output
     foreach($src_map as $file => $mapping) {
-        $res .= output_lcov($file, $coverage[$file], $mapping, $options['r']);
+        $res .= output_lcov($file, $coverage[$file], $mapping, $options[SHOW_COVERAGE]);
     } 
 
     return $res;
@@ -469,10 +468,16 @@ function parse_options(array $options) : array {
 
     // print_r($options);
     // force inclusion to array type
+    if (isset($options['i'])) { $options['i'] = is_array($options['i']) ? $options['i'] : array($options['i']); }
+    if (isset($options['e'])) { $options['e'] = is_array($options['e']) ? $options['e'] : array($options['e']); }
+
+    //print_r($options);
+/*
     $options['i'] = is_array($options['i']) ? $options['i'] : isset($options['i']) ? array($options['i']) : array();
     $options['e'] = is_array($options['e']) ? $options['e'] : isset($options['e']) ? array($options['e']) : array();
     if (count($options['i']) <= 0) { unset($options['i']); }
     if (count($options['e']) <= 0) { unset($options['e']); }
+*/
 
     // load / autodetect test bootstrap file
     if (isset($options['a'])) { 
@@ -485,13 +490,14 @@ function parse_options(array $options) : array {
 
     // php error squelching
     $options['s'] = isset($options['s']) ? true : false;
-    $options['c'] = isset($options['c']) ? true : false;
+    $options[COVERAGE] = isset($options[COVERAGE]) ? true : false;
     $options['l'] = isset($options['l']) ? true : false;
     $options['p'] = isset($options['p']) ? true : false;
     $options['k'] = isset($options['k']) ? true : false;
+    $options['cost'] = isset($options['w']) ? 'wt' : 'cpu';
     // code coverage reporting
-    $options['r'] = isset($options['r']) ? true : false;
-    if ($options['r']) { $options['c'] = true; }
+    $options[SHOW_COVERAGE] = isset($options[SHOW_COVERAGE]) ? true : false;
+    if ($options[SHOW_COVERAGE]) { $options[COVERAGE] = true; }
     return $options;
 }
 
@@ -538,7 +544,7 @@ function run_test(string $test_function, array $test_data, string &$dataset_name
 }
 
 
-// TODO: simplify...
+// TODO: simplify, maybe add an error handler and skip the error file...
 function get_error_log(array $errorconfig, array $options) {
     $data = null;
     
@@ -564,6 +570,21 @@ function get_error_log(array $errorconfig, array $options) {
     return null;
 }
 
+function call_to_source(string $fn) : array {
+    $file = 'internal'; $line = 0;
+    try {
+        if (strpos($fn, '::') !== false) {
+            list($c, $f) = explode('::', $fn, 2);
+            $o = new \ReflectionMethod($c, $f);
+        } else {
+            $o = new \ReflectionFunction($fn);
+        }
+        $file = $o->getFileName();
+        $line = $o->getStartLine();
+    } catch (\ReflectionException $e) { }
+    return array('line' => $line, 'fn' => $fn, 'file' => $file, 'calls' => array(), 'count' => 0, 'cost' => 0);
+}
+
 /*
 
 version: 1
@@ -576,12 +597,89 @@ version: 1
   */
 
 function output_profile(array $data, string $func_name, array $options) {
-    $pre  = "version: 1\ncreator: https://github.com/bitslip6/tinytest\n";
-    $pre .= "cmd: " . $options['cmd'];
-    $pre .= "part: 1\npositions: line\nevents: Time\nsummary:"; 
+    $pre  = "version: 1\ncreator: https://github.com/bitslip6/tinytest\ncmd: {$options['cmd']}\npart: 1\npositions: line\nevents: Time\nsummary: "; 
 
-    echo "FN: $func_name\n";
+    // remove internal functions
+    $call_graph = array_filter($data, function($k) {
+        return (stripos($k, 'tinytest') !== false
+            || stripos($k, 'assert_') !== false
+            ) ? false : true;
+    }, ARRAY_FILTER_USE_KEY);
+
+    //$data2 = array();
+    //do_for_all_key_value($data1, function($key, $value) use (&$data2, $func_name) { $data2[str_replace('main()', $func_name, $key)] = $value; });
+    //
+
+    //$split_fns = array_map(
+    //        partial('explode', '==>'), 
+    //        array_keys($call_graph));
+    //print_r($split_fns);die();
+    // generate list of functions with space for call data
+ 
+    $fn_list = array();
+    array_walk($call_graph, function($x, $fn_name) use (&$fn_list, $func_name, $options) { 
+        $parts = explode('==>', $fn_name);
+        if (!isset($fn_list[$parts[0]])) {
+            $call = call_to_source($parts[0]);
+            $call['cost'] = $x[$options['cost']];
+            $call['count'] = 1;
+            $fn_list[$parts[0]] = $call;
+        }
+        if (count($parts) > 1) {
+            $call = call_to_source($parts[1]);
+            $call['cost'] = $x[$options['cost']];
+            $call['count'] = $x['ct'];
+            $fn_list[$parts[0]]['calls'][] = $call;
+        }
+    });
+    //unset($fn_list['main()']);
+
+    $out = "";
+    $sum = 0;
+    array_walk($fn_list, function($x, $fn_name) use (&$out, &$sum) {
+        $out .= sprintf("fl=%s\nfn=%s\n%d %d\n", $x['file'], $x['fn'], $x['line'], $x['cost']);
+        $sum += $x['cost'];
+        foreach ($x['calls'] as $call) {
+            $out .= sprintf("cfl=%s\ncfn=%s\ncalls=%d %d\n%d %d\n", $call['file'], $call['fn'], $call['count'], $call['line'], $x['line'], $call['cost']);
+            $sum += $call['cost'];
+        }
+        $out .= "\n";
+    });
+    
+    echo $pre . $sum . "\n\n". $out;
+    //print_r($fn_list);
+    die("LIST!\n");
+
+
+    //$final_map = array();
+    $final = array_map_assoc(function($key, $value) use (&$fn_list, &$final_map, $options) {
+        //echo "key [$key] = " .var_export($value) . "\n";
+        //calls number_calls line_number
+        $fns = explode('==>', $key);
+        //$n = str_replace('main()', $func_name, $x[$i]);
+        if (count($fns) === 2) {
+            //$fn = $fn_list[$fns[0]];
+            $call = $fn_list[$fns[1]];
+            $call['cost'] = $value[$options['cost']];
+            $call['count'] = $value['ct'];
+            $fn_list[$fns[0]]['calls'][] = $call;
+        }
+
+        //$data = $fn_list[$fns[0]];
+        //print_r($data);
+//die();
+
+        return array($key, $value);
+    }, $call_graph);
+
     print_r($data);
+    die("done");
+    //$data4 = array_map(function($x) { return call_to_source($x[0]); }, $data3);
+
+    //echo "FN: $func_name\n";
+    print_r($fn_list);
+
+    //print_r($data4);
     die();
 
     $all_funcs = array();
@@ -639,13 +737,12 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     echo $format_test_fn($function_name, $test_data, $options);
 
     if ($options['l']) { return; }
-
     $error = $result = $t0 = $t1 = null;
-    $pre_test_assert_count = $GLOBALS['assert_count'];
+    $pre_test_assert_count = $GLOBALS[ASSERT_CNT];
     try {
         // turn on output buffer and start the operation log for code coverage reporting
         ob_start();
-        if ($options['c']) { \phpdbg_start_oplog(); }
+        if ($options[COVERAGE]) { \phpdbg_start_oplog(); }
         // run the test
         if ($options['p'] || $options['k']) { \tideways_enable(TIDEWAYS_FLAGS_MEMORY | TIDEWAYS_FLAGS_CPU); }
         $t0 = microtime(true);
@@ -666,13 +763,14 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     // display the result
     finally  {
         $t1 = microtime(true);
+        // die("OP\n");
         if ($options['p'] || $options['k']) { output_profile(tideways_disable(), $function_name, $options); }
         $test_data['error'] = ($error == null) ? get_error_log($test_data['phperror'], $options) : $error;
         $test_data['result'] = (not_quiet($options)) ? ob_get_contents() . $result : "QUIET";
         ob_end_clean();
         if ($error == null) {
             $test_data['status'] = "OK";
-            if ($GLOBALS['assert_count'] === $pre_test_assert_count) {
+            if ($GLOBALS[ASSERT_CNT] === $pre_test_assert_count) {
                 count_assertion_fail();
                 $test_data['status'] = "IN";
             }
@@ -686,7 +784,8 @@ do_for_all($just_test_functions, function($function_name) use (&$coverage, $opti
     }
 
     // combine the oplogs...
-    if ($options['c']) {
+    if ($options[COVERAGE]) {
+        dbg($options);
         $oplog = \phpdbg_end_oplog();
         $coverage = combine_oplog($coverage, $oplog, $options);
     }
@@ -702,5 +801,5 @@ if (count($coverage) > 0) {
 @unlink(ERR_OUT);
 // display the test results
 $m1=microtime(true);
-echo "\n".$GLOBALS['assert_count'] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".number_format($m1-$m0, 5)." seconds";
+echo "\n".$GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true)/1024) . "KB in ".number_format($m1-$m0, 5)." seconds";
 }
