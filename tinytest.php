@@ -570,19 +570,29 @@ function get_error_log(array $errorconfig, array $options) {
     return null;
 }
 
-function call_to_source(string $fn) : array {
-    $file = 'internal'; $line = 0;
+// ugly but compatible with all versions of php
+function call_to_source(string $fn, array $x, array $options) : array {
+    $file = '<internal>'; $line = -1;
     try {
+        $o = null;
         if (strpos($fn, '::') !== false) {
             list($c, $f) = explode('::', $fn, 2);
             $o = new \ReflectionMethod($c, $f);
+            $file = $o->getFileName();
+            $line = $o->getStartLine();
         } else {
             $o = new \ReflectionFunction($fn);
+            $file = $o->getFileName();
+            if (!$file) { $file = "<internal>"; }
+            $line = $o->getStartLine();
+            if (!$line) { $line = 0; }
         }
-        $file = $o->getFileName();
-        $line = $o->getStartLine();
-    } catch (\ReflectionException $e) { }
-    return array('line' => $line, 'fn' => $fn, 'file' => $file, 'calls' => array(), 'count' => 0, 'cost' => 0);
+    } catch (\ReflectionException $e) { $file = '<internal>'; $line = 0; }
+
+    //$call['cost'] = $x[$options['cost']];
+    //$call['count'] = $x['ct'];
+    //echo "file $fn = [$file:$line]\n";
+    return array('line' => $line, 'fn' => $fn, 'file' => $file, 'calls' => array(), 'count' => $x['ct'], 'cost' => $x[$options['cost']]);
 }
 
 /*
@@ -606,33 +616,19 @@ function output_profile(array $data, string $func_name, array $options) {
             ) ? false : true;
     }, ARRAY_FILTER_USE_KEY);
 
-    //$data2 = array();
-    //do_for_all_key_value($data1, function($key, $value) use (&$data2, $func_name) { $data2[str_replace('main()', $func_name, $key)] = $value; });
-    //
 
-    //$split_fns = array_map(
-    //        partial('explode', '==>'), 
-    //        array_keys($call_graph));
-    //print_r($split_fns);die();
-    // generate list of functions with space for call data
- 
     $fn_list = array();
     array_walk($call_graph, function($x, $fn_name) use (&$fn_list, $func_name, $options) { 
         $parts = explode('==>', $fn_name);
         if (!isset($fn_list[$parts[0]])) {
-            $call = call_to_source($parts[0]);
-            $call['cost'] = $x[$options['cost']];
-            $call['count'] = 1;
+            $call = call_to_source($parts[0], $x, $options);
             $fn_list[$parts[0]] = $call;
         }
         if (count($parts) > 1) {
-            $call = call_to_source($parts[1]);
-            $call['cost'] = $x[$options['cost']];
-            $call['count'] = $x['ct'];
+            $call = call_to_source($parts[1], $x, $options);
             $fn_list[$parts[0]]['calls'][] = $call;
         }
     });
-    //unset($fn_list['main()']);
 
     $out = "";
     $sum = 0;
@@ -646,77 +642,9 @@ function output_profile(array $data, string $func_name, array $options) {
         $out .= "\n";
     });
     
-    echo $pre . $sum . "\n\n". $out;
-    //print_r($fn_list);
-    die("LIST!\n");
-
-
-    //$final_map = array();
-    $final = array_map_assoc(function($key, $value) use (&$fn_list, &$final_map, $options) {
-        //echo "key [$key] = " .var_export($value) . "\n";
-        //calls number_calls line_number
-        $fns = explode('==>', $key);
-        //$n = str_replace('main()', $func_name, $x[$i]);
-        if (count($fns) === 2) {
-            //$fn = $fn_list[$fns[0]];
-            $call = $fn_list[$fns[1]];
-            $call['cost'] = $value[$options['cost']];
-            $call['count'] = $value['ct'];
-            $fn_list[$fns[0]]['calls'][] = $call;
-        }
-
-        //$data = $fn_list[$fns[0]];
-        //print_r($data);
-//die();
-
-        return array($key, $value);
-    }, $call_graph);
-
-    print_r($data);
-    die("done");
-    //$data4 = array_map(function($x) { return call_to_source($x[0]); }, $data3);
-
-    //echo "FN: $func_name\n";
-    print_r($fn_list);
-
-    //print_r($data4);
-    die();
-
-    $all_funcs = array();
-    foreach(array_keys($data) as $key) {
-        $t = explode("==>", $key);
-        if (count($t) == 2) {
-            $all_funcs[] = $t[0];
-            $all_funcs[] = $t[1]; 
-        }
-    }
-    $funcs = array_unique($all_funcs);
-    
-    foreach ($funcs as $fn) {
-        if (preg_match('#@\d+$#', $fn)) {
-            unset($funcs[$fn]);
-            continue;
-        }
-        try {
-            if (strpos($fn, '::') !== false) {
-                list($c, $f) = explode('::', $fn, 2);
-                $o = new \ReflectionMethod($c, $f);
-            } else {
-                $o = new \ReflectionFunction($fn);
-            }
-        } catch (\ReflectionException $e) {
-            unset($funcs[$fn]);
-            continue;
-        }
-        $file = $o->getFileName();
-        $line = $o->getStartLine();
-        if (!empty($file) && !empty($line)) {
-            $funcs[$fn] = array('line' => $line, 'file' => $file);
-        }
-    }
-    $funcs['main()'] = array('line' => 0, 'file' => $func_name);
+    file_put_contents("callgrind.$func_name", $pre . $sum . "\n\n". $out);
+    return;
     file_put_contents("$func_name.xhprof.out", json_encode($data, JSON_PRETTY_PRINT));
-    file_put_contents("$func_name.xhprof.out.map", json_encode($funcs, JSON_PRETTY_PRINT));
 }
 
 // a bit ugly
