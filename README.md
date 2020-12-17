@@ -3,9 +3,10 @@
 ### Because you just want to run some tests - not install a "framework"
 
 ## Features
-* Single file ~600 lines of code
-* Override callback functions for formatting, test selection, etc
+* Single file <1000 lines of code
 * Code coverage in lcov format _requires phpdbg_
+* Profiling in callgrind (Kcachegrind) format _requires xhprof_
+* Override callback functions for formatting, test selection, etc
 * Functional style - No classes to extend
 * Supports variety of test selection methods
 * Supports expected exceptions
@@ -25,7 +26,7 @@ curl https://github.com/bitslip6/tinytest/release/r1
 
 ## Quick Start
 create a test under your project:
-```shellsession
+```shell
 cd myproject
 mkdir tests
 cd tests
@@ -45,26 +46,25 @@ function test_hello_world() : string {
 
 **run the test**
 
-tinytest.php requires phpdbg (debug php build) for code coverage reports but can be run without coverage using a standard php 7.x intrepreter.  (see installing phpdbg for additional details). tinytest contains a #! for phpdbg so you can run it as a binary (./tinytest.php) or as a php script (phpdbg ./tinytest.php)
+tinytest.php requires phpdbg (debug php build) for code coverage reports but can be run without coverage using a standard php >= 7.x intrepreter.  (see installing phpdbg for additional details). 
 
 ```ShellSession
-/path/to/tinytest.php -f ./tests/test_hello_world.php
+php path/to/tinytest.php -f ./tests/test_hello_world.php
 
 /home/cory/tools/tinytest/tinytest.php Ver 1
 loading test file: [./tests/test_hello_world.php]                    OK
 testing function:  test_hello_world                                  OK
   -> hello world!
-generating lconv.info...
 Memory usage: 2,048KB
 ```
 
 ## writing tests
-tinytest was created to support testing functional style code.  As such the tests are simple php functions.
+tinytest was created to support testing functional style code and the tests are simple php functions.
 See the examples folder for additional test info.
 
 
 **test assertions**
-The following assertion methods are provided for you if you choose to not use the php builtin assert() (or your runtime does not enabnle zend.assertions).  These assert methods also include additional log messages to show actual vs expected and can output additional data to the console. Add your own assertions to user_defined.php and tinytest will add them.  Checkout assertions.php for boilereplate.  Pull requests welcome.
+The following assertion methods are provided for you if you choose to not use the php builtin assert() (or your runtime does not enabnle zend.assertions).  These assert methods also include additional log messages to show actual vs expected and can output additional data to the console. Add your own assertions to user_defined.php and tinytest will include them.  Checkout assertions.php for boilereplate.  Pull requests welcome.
 
 * assert_ture(bool $condition, string $message)  truthy
 * assert_false(bool $condition, string $message) falsy
@@ -76,6 +76,7 @@ The following assertion methods are provided for you if you choose to not use th
 * assert_contains(string $haystack, string $needle, string $message) assert needle is in haystack
 * assert_not_contains(string $haystack, string $needle, string $message) assert needle is NOT in haystack
 * assert_icontains(string $haystack, string $needle, string $message) assert needle is in haystack ignore case
+
 
 ```php
 <?php
@@ -104,13 +105,13 @@ function test_object_does_stuff() : void {
 
 you can add boilerplate to a bootstrap file and add it from the command line, this will run your boilerplate bootstrap once before every test file that is included:
 ```shellsession
-tinytest.php -b test_boilerplate.php -d ./tests
+php tinytest.php -b tests/bootstrap.php -d ./tests
+php tinytest.php -a -d ./tests
 ```
 
 ## exclude / include test
 you can skip over tests by their type annotation by excluding tests with the -e command line parameter.
-you can also only run included tests by using the -i command line parameter.  Both parameters can be chained to add
-additional included or excluded test types.
+you can also only run included tests by using the -i command line parameter.  Both parameters can be chained to add additional included or excluded test types.
 
 example:
 ```php
@@ -123,20 +124,28 @@ funtion test_db_access() : void {
 ```
 
 ```shellsession
-tinytest.php -f my_tests.php -i sql
+php tinytest.php -f my_tests.php -i sql
 tinytest.php (Ver 8)
 loading test file: [my_tests.php                            ]  OK
-testing function:  test_db_access                                    OK           in 0.08483996
+testing function:  test_db_access                              OK           in 0.08483996
 
 1 test, 1 passed, 0 failures/exceptions, using 2,048KB in 0.08483996 seconds
 ```
 
+## performance profiling
+
+install the [xhprof extension](https://github.com/tideways/php-xhprof-extension).
+you can install from source, pecl or maybe your OS distribution.  Tideways xhprof extension is almost fully compatible with the original xhprof extension, and tinytest
+can be edited to use xhprof as well by changing 2 lines. [php 7.0 patched xhprof ](https://github.com/patrickallaert/xhprof)
+
+Run your test with the -k or -p options.  One test_name.xhprof.json or callgrind.test_name file will be generated foreach test. callgrind files can be opened with kcachegrind on Linux / Mac.
+
 
 ## code coverage
 
-code coverage reports are generated by default when using phpdbg.  you can add code coverage to VSCode by installing the [coverage gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) plugin to VSCode.  Coverage Gutters looks for the generated lcov.info files by default but this can be changed in the coverage gutters settings.  Make sure the generated lcov.info is in your project's root directory.  You probably want to add the generated lcov.info to your .gitignore as well.
+Code coverage reports are generated by default when using phpdbg.  you can add code coverage to VSCode by installing the [coverage gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) plugin to VSCode.  Coverage Gutters looks for the generated lcov.info files by default but this can be changed in the coverage gutters settings.  Make sure the generated lcov.info is in your project's root directory.  You probably want to add the generated lcov.info to your .gitignore as well.
 
-__You can exclude code coverage reports by adding the -x command line option.__
+__You can exclude code coverage reports by adding the -e command line option.__
 
 
 ## creating test data
