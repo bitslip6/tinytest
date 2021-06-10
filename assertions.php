@@ -38,19 +38,20 @@ namespace {
         assert_base_condition(function($actual, $expected) { return $actual < $expected; }, $actual, $expected, $message);
     }
 
-    function assert_icontains(string $haystack, string $needle, string $message) {
-        assert_base_condition(function(string $needle, string $haystack) { 
-            return ($haystack != null && stristr($haystack, $needle) !== false); }, $needle, $haystack, $message);
+    function assert_icontains(?string $haystack, ?string $needle, string $message) {
+        assert_base_condition(function(?string $needle, ?string $haystack) { 
+            return ($haystack != null && stripos($haystack, $needle) !== false); }, $needle, $haystack, $message);
     }
 
-    function assert_contains(string $haystack, string $needle, string $message) {
-        assert_base_condition(function(string $needle, string $haystack) { 
-            return ($haystack != null && strstr($haystack, $needle) !== false); }, $needle, $haystack, $message);
+    function assert_contains(?string $haystack, ?string $needle, string $message) {
+        assert_base_condition(function(?string $needle, ?string $haystack) { 
+            return ($haystack != null && strpos($haystack, $needle) !== false); }, $needle, $haystack, $message);
     }
 
-    function assert_not_contains(string $haystack, string $needle, string $message) {
-        assert_base_condition(function(string $needle, string $haystack) { 
-            return ($haystack != null && strstr($haystack, $needle) === false); }, $needle, $haystack, $message);
+    function assert_not_contains(?string $haystack, ?string $needle, string $message) {
+        assert_base_condition(function(?string $needle, ?string $haystack) { 
+
+            return ($haystack == null || $needle == null || strpos($haystack, $needle) === false); }, $needle, $haystack, $message);
     }
 
 	function assert_instanceof($actual, $expected, $message) {
