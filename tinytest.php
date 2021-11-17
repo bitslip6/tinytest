@@ -8,7 +8,7 @@ const VER = "10";
 const ERR_OUT = "/tmp/tinytest";
 const COVERAGE = 'c'; const TEST_FN = 't'; const SHOW_COVERAGE = 'r'; const ASSERT_CNT = 'assert_count';
 define('YEARAGO', time() - 86400 * 365);
-opcache_reset();
+if (function_exists('opcache_reset')) { opcache_reset(); }
 
 
 /** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
