@@ -3,7 +3,7 @@
 ### Because you just want to run some tests - not install a "framework"
 
 ## Features
-* Single file <1000 lines of code
+* Single file easy to call from anywhere
 * Code coverage in lcov format _requires phpdbg_
 * Profiling in callgrind (Kcachegrind) format _requires xhprof_
 * Override callback functions for formatting, test selection, etc
@@ -65,6 +65,10 @@ See the examples folder for additional test info.
 
 **test assertions**
 The following assertion methods are provided for you if you choose to not use the php builtin assert() (or your runtime does not enabnle zend.assertions).  These assert methods also include additional log messages to show actual vs expected and can output additional data to the console. Add your own assertions to user_defined.php and tinytest will include them.  Checkout assertions.php for boilereplate.  Pull requests welcome.
+
+You can also place a project-specific `user_defined.php` in your working directory. Tinytest always loads its bundled `user_defined.php` first, then loads the one in your working directory if it exists and is a different file. This lets you add project-specific assertions without modifying the tinytest installation.
+
+**Important:** All user override functions (e.g. `user_is_test_file`, `user_format_test_run`, etc.) must be defined in the global namespace. Do not wrap them in a `namespace` declaration or they will not be detected.
 
 * assert_ture(bool $condition, string $message)  truthy
 * assert_false(bool $condition, string $message) falsy
