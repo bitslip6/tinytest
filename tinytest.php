@@ -340,6 +340,19 @@ namespace TinyTest {
         if (verbose($options) && !($options['j'] ?? false)) {
             printf("loading test file: [%s%-45s%s]", CYAN, $file, NORML);
         }
+        // collect @covers annotations before loading
+        $covers = read_file_covers($file);
+        if (!empty($covers)) {
+            $base_dir = dirname(realpath($file));
+            foreach ($covers as $path) {
+                $resolved = realpath($base_dir . DIRECTORY_SEPARATOR . $path) ?: realpath($path);
+                if ($resolved !== false) {
+                    $GLOBALS['_tinytest_covers'][] = $resolved;
+                } elseif (!($options['j'] ?? false)) {
+                    echo YELLOW . "  warning: @covers path not found: $path (in $file)" . NORML . "\n";
+                }
+            }
+        }
         require_once "$file";
         if (verbose($options) && !($options['j'] ?? false)) {
             echo GREEN_BR . "  OK\n" . NORML;
@@ -355,6 +368,17 @@ namespace TinyTest {
         };
         $is_test_file_fn = (function_exists("\\user_is_test_file")) ? "\\user_is_test_file" : "\\TinyTest\\is_test_file";
         do_for_all(scandir($dir), if_then_do($is_test_file_fn, $action, $options));
+    }
+
+    // scan a test file for @covers annotations before the first function/class definition
+    function read_file_covers(string $file): array
+    {
+        $contents = file_get_contents($file);
+        if ($contents === false) { return []; }
+        // take only the header — everything before first function/class/trait/interface/enum
+        $header = preg_split('/^\s*(?:function |class |trait |interface |enum )/m', $contents)[0];
+        preg_match_all('/@covers\s+([^\s*]+)/', $header, $matches);
+        return array_map(fn($p) => trim($p, '*/'), array_filter($matches[1]));
     }
 
     // check if this test should be excluded, returns false if test should run
@@ -437,6 +461,14 @@ namespace TinyTest {
         };
         do_for_allkey($newdata, if_then_do(is_contain($options['d'] ?? $options['f']), $remove_element));
 
+        // remove tinytest framework files from coverage data
+        $tinytest_dir = __DIR__ . DIRECTORY_SEPARATOR;
+        foreach (array_keys($newdata) as $file) {
+            if (strpos($file, $tinytest_dir) === 0) {
+                unset($newdata[$file]);
+            }
+        }
+
         // a bit ugly...
         foreach ($newdata as $file => $lines) {
             if (isset($cov[$file])) {
@@ -466,7 +498,7 @@ namespace TinyTest {
     // find the function, branch or statement at lineno for source_listing
     function find_index_lineno_between(array $source_listing, int $lineno, string $type): int
     {
-        //print_r($source_listing);
+        if (empty($source_listing)) { return -1; }
         for ($i = 0, $m = max(array_keys($source_listing)); $i < $m; $i++) {
             if (!isset($source_listing[$i])) {
                 continue;
@@ -539,39 +571,83 @@ namespace TinyTest {
         $outputs['brda'] .= "BRF:" . count($src_mapping['brda']) . "\nBRH:{$hits['brda']}\n";
         $outputs['da'] .= "LF:" . count($src_mapping['da']) . "\nLH:{$hits['da']}\n";
 
+        // collect covered and uncovered functions, excluding test functions
+        $fn_details = ['covered' => [], 'uncovered' => []];
+        foreach ($src_mapping['fn'] as $fn_def) {
+            $name = $fn_def['name'];
+            if (substr($name, 0, 5) === 'test_' || substr($name, 0, 3) === 'it_' || substr($name, 0, 7) === 'should_') {
+                continue;
+            }
+            $hit = ($fn_def['hit'] === HIT_MISS) ? 0 : $fn_def['hit'];
+            $key = $hit > 0 ? 'covered' : 'uncovered';
+            $fn_details[$key][] = ['name' => $name, 'line' => $fn_def['start']];
+        }
+
+        $fn_count = count($src_mapping['fn']);
+
         // output to the console the coverage totals
         if ($showcoverage) {
             $da_count = count($src_mapping['da']);
-            $fn_count = count($src_mapping['fn']);
             $brda_count = count($src_mapping['brda']);
             echo "$file " . GREEN . ($da_count > 0 ? round((intval($hits['da']) / $da_count) * 100) : 0) . " % " . NORML . "\n";
             echo "function coverage: {$hits['fn']}/" . $fn_count . "\n";
             echo "conditional coverage: {$hits['brda']}/" . $brda_count . "\n";
             echo "statement coverage: {$hits['da']}/" . $da_count . "\n";
+            foreach ($fn_details['covered'] as $fn) {
+                echo GREEN . "    {$fn['name']} : covered" . NORML . "\n";
+            }
+            foreach ($fn_details['uncovered'] as $fn) {
+                echo YELLOW . "    {$fn['name']} : uncovered" . NORML . "\n";
+            }
         }
         // return the combined outputs
-        return array_reduce($outputs, function ($result, $item) {
+        $lcov = array_reduce($outputs, function ($result, $item) {
             return $result . $item;
         }, "SF:$file\n") . "end_of_record\n";
+
+        return [
+            'lcov' => $lcov,
+            'covered' => $fn_details['covered'],
+            'uncovered' => $fn_details['uncovered'],
+            'totals' => ['fn_total' => $fn_count, 'fn_covered' => $hits['fn']],
+        ];
     }
 
-    // a bit ugly, consider some state machine abstraction, may require 2 passes...???
-    // take a mapping of file => array(tokens) and create a source mapping for function, branch, statement 
+    // take a mapping of file => array(tokens) and create a source mapping for function, branch, statement
     function make_source_map_from_tokens(array $tokens)
     {
         $funcs = get_defined_functions(false);
         $lcov = array();
+        // token types that introduce a named block whose name should NOT be treated as a function
+        $skip_name_tokens = array('T_NAMESPACE', 'T_CLASS', 'T_INTERFACE', 'T_TRAIT');
+        if (defined('T_ENUM')) { $skip_name_tokens[] = 'T_ENUM'; }
+        // PHP type keywords that should never be treated as function names
+        $type_hint_names = explode(' ', 'string int float bool array void null true false never mixed object callable iterable self static parent');
+
         foreach ($tokens as $file => $tokens) {
             $lcov[$file] = array("fn" => array(), "da" => array(), "brda" => array());
-            $fndef = new_line_definition(0, '', 'fn', 999999);
-            $lastname = "";
+            $expect_fn_name = false;  // true after we see T_FUNCTION (not in a use statement)
+            $skip_next_name = false;  // true after namespace/class/interface/trait/enum
+            $in_use = false;          // true after T_USE, cleared on semicolon or closing brace
+            $fn_start_line = 0;       // line where T_FUNCTION was seen
+
             foreach ($tokens as $token) {
-                // skip whitespace and other tokens we don't care about, as well as non tokenizable stuff
-                if (!is_important_token($token)) {
-                    // not whitespace, and function name is empty, then we havre anon function... ugly hack
-                    if ($token[0] != 382 && $fndef['name'] == "" && strlen($lastname) > 0) {
-                        $fndef['name'] = $lastname;
+                // non-array tokens are single characters like ( ) { } ; , etc
+                if (!is_array($token)) {
+                    // if we were expecting a function name and hit '(' instead,
+                    // this is an anonymous function / closure — cancel expectation
+                    if ($expect_fn_name && $token === '(') {
+                        $expect_fn_name = false;
                     }
+                    // semicolon or closing brace ends a use statement
+                    if ($in_use && ($token === ';' || $token === '}')) {
+                        $in_use = false;
+                    }
+                    continue;
+                }
+
+                // skip whitespace and other tokens we don't care about
+                if (!is_important_token($token)) {
                     continue;
                 }
 
@@ -579,21 +655,45 @@ namespace TinyTest {
                 $src = $token[1];
                 $lineno = $token[2];
 
-                if ($nm == "T_STRING" && $fndef['name'] == "" && $src != "strict_types") {
-                    $fndef = new_line_definition($lineno, $src, "fn", 999999);
-                    array_push($lcov[$file]["fn"], $fndef);
-                } else if ($nm == "T_FUNCTION") {
-                    // a new function.  end the previous function
-                    if ($fndef['name'] != '') {
-                        // update the end of the last function to this line -1, ugly hack
-                        $lcov[$file]["fn"][count($lcov[$file]["fn"]) - 1]['end'] = $lineno - 1;
-                        $lastname = $fndef['name'];
-                        $fndef['name'] = "";
-                    }
+                // "use" statements import names — skip everything until semicolon/brace
+                if ($nm == "T_USE") {
+                    $in_use = true;
+                    continue;
                 }
-                // handle user and system function calls
-                else if ($nm == "T_STRING") {
-                    if (in_array($token[1], $funcs['internal']) || in_array($token[1], $funcs['user'])) {
+                // while inside a use statement, ignore all tokens (T_FUNCTION, T_STRING, etc)
+                if ($in_use) {
+                    continue;
+                }
+
+                if (in_array($nm, $skip_name_tokens)) {
+                    // next T_STRING is a namespace/class/etc name, skip it
+                    $skip_next_name = true;
+                } else if ($nm == "T_FUNCTION") {
+                    // close the previous function definition if any
+                    if (count($lcov[$file]["fn"]) > 0) {
+                        $last_idx = count($lcov[$file]["fn"]) - 1;
+                        if ($lcov[$file]["fn"][$last_idx]['end'] === 999999) {
+                            $lcov[$file]["fn"][$last_idx]['end'] = $lineno - 1;
+                        }
+                    }
+                    $expect_fn_name = true;
+                    $fn_start_line = $lineno;
+                } else if ($nm == "T_STRING" && $expect_fn_name) {
+                    // this T_STRING follows T_FUNCTION — it's the function/method name
+                    $expect_fn_name = false;
+                    // skip names that are actually type hints (shouldn't happen here
+                    // since type hints come after params, but guard against edge cases)
+                    if (!in_array(strtolower($src), $type_hint_names)) {
+                        $fndef = new_line_definition($fn_start_line, $src, "fn", 999999);
+                        array_push($lcov[$file]["fn"], $fndef);
+                    }
+                } else if ($nm == "T_STRING" && $skip_next_name) {
+                    // this T_STRING is a namespace/class/interface/trait name — skip it
+                    $skip_next_name = false;
+                } else if ($nm == "T_STRING") {
+                    // handle user and system function calls (not type hints)
+                    if (!in_array(strtolower($token[1]), $type_hint_names) &&
+                        (in_array($token[1], $funcs['internal']) || in_array($token[1], $funcs['user']))) {
                         array_push($lcov[$file]["da"], new_line_definition($lineno, "S", "da", $lineno));
                     }
                 } else if ($nm == "T_IF") {
@@ -602,9 +702,6 @@ namespace TinyTest {
                     array_push($lcov[$file]["da"], new_line_definition($lineno, "E", "da", $lineno));
                 }
             }
-            // add the last function definition
-            //$fndef['end'] = 999999;
-            //array_push($lcov[$file]["fn"], $fndef);
 
             // remove statement lines we have multiple tokens for
             $keep_map = array();
@@ -629,7 +726,8 @@ namespace TinyTest {
     }
 
     // take coverage data from oplog and convert to lcov file format
-    function coverage_to_lcov(array $coverage, array $options)
+    // $covers_filter: array of resolved file paths from @covers annotations (empty = show all)
+    function coverage_to_lcov(array $coverage, array $options, array $covers_filter = [])
     {
 
         // read in all source files and parse the php tokens
@@ -641,12 +739,32 @@ namespace TinyTest {
         // convert the tokens to a source map
         $src_map = make_source_map_from_tokens($tokens);
         $res = "";
+        $covered = [];
+        $uncovered = [];
         // combine the coverage output with the source map and produce an lcov output
         foreach ($src_map as $file => $mapping) {
-            $res .= output_lcov($file, $coverage[$file], $mapping, $options[SHOW_COVERAGE]);
+            // when @covers is active, only show -r detail for covered files
+            $show_this_file = $options[SHOW_COVERAGE] && (empty($covers_filter) || in_array($file, $covers_filter));
+            $result = output_lcov($file, $coverage[$file], $mapping, $show_this_file);
+            $res .= $result['lcov'];
+            if (!empty($result['covered']) || !empty($result['uncovered'])) {
+                $covered[$file] = [
+                    'functions_total' => $result['totals']['fn_total'],
+                    'functions_covered' => $result['totals']['fn_covered'],
+                    'covered_functions' => $result['covered'],
+                    'uncovered_functions' => $result['uncovered'],
+                ];
+            }
+            if (!empty($result['uncovered'])) {
+                $uncovered[$file] = [
+                    'functions_total' => $result['totals']['fn_total'],
+                    'functions_covered' => $result['totals']['fn_covered'],
+                    'uncovered_functions' => $result['uncovered'],
+                ];
+            }
         }
 
-        return $res;
+        return ['lcov' => $res, 'coverage' => $covered, 'uncovered' => $uncovered];
     }
     /** END CODE COVERAGE FUNCTIONS */
 
@@ -736,6 +854,9 @@ namespace TinyTest {
     // get a list of all tinytest fucntion names
     $funcs1 = get_defined_functions(true);
     unset($funcs1['internal']);
+
+    // initialize @covers collection
+    $GLOBALS['_tinytest_covers'] = [];
 
     // load the unit test files
     if (isset($options['d'])) {
@@ -1125,12 +1246,24 @@ version: 1
         gc_collect_cycles();
     });
 
+    $uncovered_functions = [];
+    $coverage_data = [];
     if (count($coverage) > 0) {
-        //print_r($coverage);
         if (!$options['j']) {
             echo "\ngenerating lcov.info...\n";
         }
-        file_put_contents("lcov.info", coverage_to_lcov($coverage, $options));
+        $covers_list = array_unique($GLOBALS['_tinytest_covers']);
+        $cov_result = coverage_to_lcov($coverage, $options, $covers_list);
+        file_put_contents("lcov.info", $cov_result['lcov']);
+        $uncovered_functions = $cov_result['uncovered'];
+        $coverage_data = $cov_result['coverage'];
+
+        // if @covers annotations were found, filter coverage to only listed files
+        if (!empty($covers_list)) {
+            $filter_fn = fn($file) => in_array($file, $covers_list);
+            $coverage_data = array_filter($coverage_data, $filter_fn, ARRAY_FILTER_USE_KEY);
+            $uncovered_functions = array_filter($uncovered_functions, $filter_fn, ARRAY_FILTER_USE_KEY);
+        }
     }
 
     @unlink(ERR_OUT);
@@ -1151,12 +1284,24 @@ version: 1
                 'memory_kb' => (int) (memory_get_peak_usage(true) / 1024),
             ],
         ];
+        if ($options[COVERAGE] && !empty($coverage_data)) {
+            $output['coverage'] = $coverage_data;
+        }
         echo json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     } else {
         // display the test results
         $skip_count = $GLOBALS['assert_skip_count'] ?? 0;
         $skip_str = $skip_count > 0 ? ", $skip_count skipped" : "";
-        echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions" . $skip_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
+        $cov_total = 0;
+        $uncov_total = 0;
+        foreach ($coverage_data as $file_data) {
+            $cov_total += count($file_data['covered_functions']);
+            $uncov_total += count($file_data['uncovered_functions']);
+        }
+        $fn_total = $cov_total + $uncov_total;
+        $cov_str = $fn_total > 0 ? ", $cov_total/$fn_total functions covered" : "";
+        $uncov_str = $uncov_total > 0 ? ", $uncov_total uncovered" : "";
+        echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions" . $skip_str . $cov_str . $uncov_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
     }
 
     exit($GLOBALS['assert_fail_count'] > 0 ? 1 : 0);
