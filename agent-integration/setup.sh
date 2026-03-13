@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# TinyTest Claude Code Integration Setup
+# TinyTest Agentic Programming Integration Setup
 #
 # Copies CLAUDE.md and skills into a consuming project.
 #
 # Usage:
-#   bash /path/to/tinytest/claude-integration/setup.sh [project_dir]
+#   bash /path/to/tinytest/agent-integration/setup.sh [project_dir]
 #
 # If project_dir is omitted, uses current directory.
 
@@ -47,11 +47,11 @@ echo "[+] Copied skills to .claude/skills/"
 # 2b. Copy agent definitions for pi subagent extension (if user has pi)
 if [ -d "$PROJECT_DIR/.pi" ] || command -v pi &>/dev/null; then
     mkdir -p "$PROJECT_DIR/.pi/agents"
-    if [ -d "$SCRIPT_DIR/../claude-integration/agents" ]; then
-        cp "$SCRIPT_DIR/../claude-integration/agents/"*.md "$PROJECT_DIR/.pi/agents/" 2>/dev/null || true
+    if [ -d "$SCRIPT_DIR/../agent-integration/agents" ]; then
+        cp "$SCRIPT_DIR/../agent-integration/agents/"*.md "$PROJECT_DIR/.pi/agents/" 2>/dev/null || true
         # Also copy to .claude/agents for Claude Code compatibility
         mkdir -p "$PROJECT_DIR/.claude/agents"
-        cp "$SCRIPT_DIR/../claude-integration/agents/"*.md "$PROJECT_DIR/.claude/agents/" 2>/dev/null || true
+        cp "$SCRIPT_DIR/../agent-integration/agents/"*.md "$PROJECT_DIR/.claude/agents/" 2>/dev/null || true
         echo "[+] Copied agent definitions to .pi/agents/ and .claude/agents/"
     fi
 fi
@@ -60,6 +60,7 @@ fi
 SETTINGS_FILE="$PROJECT_DIR/.claude/settings.local.json"
 if [ -f "$SETTINGS_FILE" ]; then
     echo "[!] $SETTINGS_FILE already exists — skipping"
+    echo '   Add to .claude/settings.local.json permissions -> allow [ .... "Bash(php $TINYTEST_DIR/tinytest.php*)" ]'
 else
     mkdir -p "$PROJECT_DIR/.claude"
     cat > "$SETTINGS_FILE" << HEREDOC
