@@ -204,6 +204,65 @@ Memory usage: 2,048KB
 
 As you can see there is an error in our test data, we added an extra 0 to the expected test output and produced an error.  Change 200 to 20, repeat the test and it will succeed.
 
+## JSON output
+
+Use the `-j` flag to get machine-readable JSON output instead of colored terminal text:
+
+```shellsession
+php tinytest.php -j -f ./tests/test_hello_world.php
+```
+
+Output format:
+```json
+{
+  "version": 11,
+  "tests": [
+    {"name": "test_foo", "file": "test_x.php", "status": "OK", "duration": 0.001, "assertions": 3},
+    {"name": "test_bar", "file": "test_x.php", "status": "FAIL", "duration": 0.001,
+     "error": {"message": "expected [42] got [41] \"values differ\"", "file": "test_x.php", "line": 28}}
+  ],
+  "summary": {"total": 2, "passed": 1, "failed": 1, "incomplete": 0, "duration": 0.002, "memory_kb": 2048}
+}
+```
+
+Combine with `-l` to list tests as JSON without running them:
+```shellsession
+php tinytest.php -j -l -f ./tests/test_hello_world.php
+```
+
+## Claude Code integration
+
+TinyTest includes first-class integration with [Claude Code](https://claude.com/claude-code) for AI-assisted test generation, execution, and debugging.
+
+### Quick setup
+
+Run the setup script from your project directory:
+
+```shellsession
+bash /path/to/tinytest/claude-integration/setup.sh .
+```
+
+This will:
+1. Create a `CLAUDE.md` with TinyTest conventions and assertion reference
+2. Install Claude Code skills for generating, running, and fixing tests
+3. Create `.claude/settings.local.json` with permission to run tinytest
+
+### What's included
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| CLAUDE.md template | `claude-integration/CLAUDE.md.template` | Complete API reference so Claude uses correct assertions |
+| Generate test skill | `claude-integration/skills/generate-test/SKILL.md` | Generates tests for any PHP source file |
+| Run tests skill | `claude-integration/skills/run-tests/SKILL.md` | Runs tests and reports structured results |
+| Fix test skill | `claude-integration/skills/fix-test/SKILL.md` | Diagnoses and fixes failing tests |
+
+### Manual setup
+
+If you prefer to set things up manually:
+
+1. Copy `claude-integration/CLAUDE.md.template` to your project root as `CLAUDE.md`, replacing `{{TINYTEST_PATH}}` with the actual path to tinytest
+2. Copy skill directories from `claude-integration/skills/` to `.claude/skills/` in your project (each skill is a directory containing `SKILL.md`)
+
 #### todo
 * add multithreaded support for large test suites
 
