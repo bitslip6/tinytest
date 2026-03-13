@@ -1,0 +1,24 @@
+# TinyTest
+
+This project uses **TinyTest** for testing. Do NOT use PHPUnit-style assertions (`$this->assertEquals()`). TinyTest uses plain global functions like `assert_eq($actual, $expected, "message")`.
+
+## Running Tests
+
+```bash
+php {{TINYTEST_PATH}}/tinytest.php -f tests/test_foo.php        # single file
+php {{TINYTEST_PATH}}/tinytest.php -d tests/                    # directory
+php {{TINYTEST_PATH}}/tinytest.php -f tests/test_foo.php -t test_name  # single test
+php {{TINYTEST_PATH}}/tinytest.php -v -f tests/test_foo.php     # verbose (stack traces)
+php {{TINYTEST_PATH}}/tinytest.php -j -f tests/test_foo.php     # JSON output
+```
+
+## Skills
+
+Use `/generate-test`, `/run-tests`, and `/fix-test` for test workflows. These skills contain the full assertion API reference, file conventions, and annotation details.
+
+## Quick Reference
+
+- Test files: `test_*.php`, test functions: `test_*`/`it_*`/`should_*`, all in global namespace
+- Assertions: `assert_eq`, `assert_true`, `assert_false`, `assert_contains`, etc. — see `{{TINYTEST_PATH}}/assertions.php` for full list
+- Parameter order: actual before expected, haystack before needle, message always last
+- A test with no assertions is marked incomplete ("IN") and counts as a failure
