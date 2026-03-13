@@ -377,8 +377,8 @@ namespace TinyTest {
         if ($contents === false) { return []; }
         // take only the header — everything before first function/class/trait/interface/enum
         $header = preg_split('/^\s*(?:function |class |trait |interface |enum )/m', $contents)[0];
-        preg_match_all('/@covers\s+([^\s*]+)/', $header, $matches);
-        return array_map(fn($p) => trim($p, '*/'), array_filter($matches[1]));
+        preg_match_all('/@covers\s+(.+)/', $header, $matches);
+        return array_filter(array_map(fn($p) => trim($p, " \t\n\r\0\x0B*/"), $matches[1]), 'strlen');
     }
 
     // check if this test should be excluded, returns false if test should run
@@ -461,11 +461,13 @@ namespace TinyTest {
         };
         do_for_allkey($newdata, if_then_do(is_contain($options['d'] ?? $options['f']), $remove_element));
 
-        // remove tinytest framework files from coverage data
-        $tinytest_dir = __DIR__ . DIRECTORY_SEPARATOR;
-        foreach (array_keys($newdata) as $file) {
-            if (strpos($file, $tinytest_dir) === 0) {
-                unset($newdata[$file]);
+        // remove tinytest framework files from coverage data (unless @covers overrides)
+        if (empty($GLOBALS['_tinytest_covers'])) {
+            $tinytest_dir = __DIR__ . DIRECTORY_SEPARATOR;
+            foreach (array_keys($newdata) as $file) {
+                if (strpos($file, $tinytest_dir) === 0) {
+                    unset($newdata[$file]);
+                }
             }
         }
 
