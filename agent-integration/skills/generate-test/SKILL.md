@@ -22,6 +22,9 @@ Create `tests/test_<source_name>.php` following these rules strictly:
 **File structure:**
 ```php
 <?php declare(strict_types=1);
+/**
+ * @covers ../path/to/source.php
+ */
 
 require_once __DIR__ . '/../path/to/source.php';
 
@@ -81,6 +84,9 @@ function test_<function_name>_throws_on_invalid(): void {
 - `@skip <reason>` — skip this test without running it
 - `@todo <reason>` — mark as TODO without running it
 - `@timeout <seconds>` — fail if test takes longer (supports decimals like `0.5`)
+
+**File-level annotation** (add in docblock at top of test file, before any function):
+- `@covers <path>` — restrict coverage reports to this source file (relative to test file). Multiple `@covers` lines supported.
 
 **`@exception` annotation — testing that code throws:**
 

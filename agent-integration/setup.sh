@@ -39,7 +39,22 @@ cp -r "$SCRIPT_DIR/skills/generate-test" "$PROJECT_DIR/.claude/skills/"
 cp -r "$SCRIPT_DIR/skills/run-tests" "$PROJECT_DIR/.claude/skills/"
 cp -r "$SCRIPT_DIR/skills/fix-test" "$PROJECT_DIR/.claude/skills/"
 cp -r "$SCRIPT_DIR/skills/refactor-testable" "$PROJECT_DIR/.claude/skills/"
+cp -r "$SCRIPT_DIR/skills/cover-functions" "$PROJECT_DIR/.claude/skills/"
+cp -r "$SCRIPT_DIR/skills/audit-coverage" "$PROJECT_DIR/.claude/skills/"
+cp -r "$SCRIPT_DIR/skills/analyze-function" "$PROJECT_DIR/.claude/skills/"
 echo "[+] Copied skills to .claude/skills/"
+
+# 2b. Copy agent definitions for pi subagent extension (if user has pi)
+if [ -d "$PROJECT_DIR/.pi" ] || command -v pi &>/dev/null; then
+    mkdir -p "$PROJECT_DIR/.pi/agents"
+    if [ -d "$SCRIPT_DIR/../claude-integration/agents" ]; then
+        cp "$SCRIPT_DIR/../claude-integration/agents/"*.md "$PROJECT_DIR/.pi/agents/" 2>/dev/null || true
+        # Also copy to .claude/agents for Claude Code compatibility
+        mkdir -p "$PROJECT_DIR/.claude/agents"
+        cp "$SCRIPT_DIR/../claude-integration/agents/"*.md "$PROJECT_DIR/.claude/agents/" 2>/dev/null || true
+        echo "[+] Copied agent definitions to .pi/agents/ and .claude/agents/"
+    fi
+fi
 
 # 3. Create settings with tinytest permission rule
 SETTINGS_FILE="$PROJECT_DIR/.claude/settings.local.json"

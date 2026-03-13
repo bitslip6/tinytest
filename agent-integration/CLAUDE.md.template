@@ -10,11 +10,18 @@ php {{TINYTEST_PATH}}/tinytest.php -d tests/                    # directory
 php {{TINYTEST_PATH}}/tinytest.php -f tests/test_foo.php -t test_name  # single test
 php {{TINYTEST_PATH}}/tinytest.php -v -f tests/test_foo.php     # verbose (stack traces)
 php {{TINYTEST_PATH}}/tinytest.php -j -f tests/test_foo.php     # JSON output
+phpdbg -qrr -d xdebug.mode=off {{TINYTEST_PATH}}/tinytest.php -j -c -d tests/  # JSON + coverage (shows uncovered functions)
 ```
 
 ## Skills
 
-Use `/generate-test`, `/run-tests`, and `/fix-test` for test workflows. These skills contain the full assertion API reference, file conventions, and annotation details.
+- `/generate-test` — generate tests for a PHP source file (includes full assertion API reference)
+- `/run-tests` — run tests and report structured results
+- `/fix-test` — diagnose and fix a failing test
+- `/refactor-testable` — extract business logic into pure, testable functions and generate tests
+- `/cover-functions` — run coverage analysis, find untested functions, and generate tests for them (requires phpdbg)
+- `/audit-coverage` — full audit: scan for uncovered functions, analyze each for bugs, generate exhaustive tests, report findings to operator (requires phpdbg)
+- `/analyze-function` — deep-analyze a single function: trace all paths, find bugs, generate exhaustive tests
 
 ## Quick Reference
 
