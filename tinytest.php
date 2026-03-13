@@ -220,6 +220,10 @@ namespace TinyTest {
     {
         return (substr($haystack, -strlen($needle)) === $needle);
     }
+    function strip_ansi(string $text): string
+    {
+        return preg_replace('/\033\[[0-9;]*m/', '', $text);
+    }
     function say($color = '\033[39m', $prefix = ""): callable
     {
         return function ($line) use ($color, $prefix): string {
@@ -289,8 +293,10 @@ namespace TinyTest {
             define("{$name}_BR", ESC . "[" . $d[$name] . ";1m");
         });
 
-        // program inffails o
-        echo __FILE__ . CYAN . " Ver " . VER . NORML . "\n";
+        // program info
+        if (!($options['j'] ?? false)) {
+            echo __FILE__ . CYAN . " Ver " . VER . NORML . "\n";
+        }
 
         // include test assertions
         require __DIR__ . "/assertions.php";
@@ -302,7 +308,8 @@ namespace TinyTest {
 
         // usage help
         if ((!isset($options['d']) && !isset($options['f'])) || isset($options['h']) || isset($options['?'])) {
-            die(show_usage());
+            show_usage();
+            exit(0);
         }
         // set assertion state
         ini_set("assert.exception", "1");
@@ -330,11 +337,11 @@ namespace TinyTest {
     function load_file(string $file, array $options): void
     {
         assert(is_file($file), "test file [$file] does not exist");
-        if (verbose($options)) {
+        if (verbose($options) && !($options['j'] ?? false)) {
             printf("loading test file: [%s%-45s%s]", CYAN, $file, NORML);
         }
         require_once "$file";
-        if (verbose($options)) {
+        if (verbose($options) && !($options['j'] ?? false)) {
             echo GREEN_BR . "  OK\n" . NORML;
         }
     }
@@ -382,6 +389,8 @@ namespace TinyTest {
                     array_push($result['exception'], $last);
                 } else if ($matches[1] === "phperror") {
                     array_push($result['phperror'], $matches[2]);
+                } else if ($matches[1] === "skip" || $matches[1] === "todo") {
+                    $result[$matches[1]] = trim($matches[2]);
                 } else {
                     $result[$matches[1]] = $last;
                 }
@@ -413,6 +422,7 @@ namespace TinyTest {
         echo " -n " . GREY . "            skip profile data for functions with low overhead\n" . NORML;
         echo " -w " . GREY . "            use wall time for callgrind output (default cpu)\n" . NORML;
         echo " -l " . GREY . "            just list tests, don't run\n" . NORML;
+        echo " -j " . GREY . "            output results as JSON\n" . NORML;
     }
 
 
@@ -707,6 +717,7 @@ namespace TinyTest {
         $options['k'] = isset($options['k']) ? true : false;
         $options['n'] = isset($options['n']) ? true : false;
         $options['cost'] = isset($options['w']) ? 'wt' : 'cpu';
+        $options['j'] = isset($options['j']) ? true : false;
         // code coverage reporting
         $options[COVERAGE] = isset($options[COVERAGE]) ? true : false;
         $options[SHOW_COVERAGE] = isset($options[SHOW_COVERAGE]) ? true : false;
@@ -718,7 +729,7 @@ namespace TinyTest {
 
     /** MAIN ... */
     // process command line options
-    $options = parse_options(getopt("b:d:f:t:i:e:pmnqchrvsalkw?"));
+    $options = parse_options(getopt("b:d:f:t:i:e:pmnqchrvsalkwj?"));
     $options = init($options);
     $options['cmd'] = join(' ', $argv);
 
@@ -765,9 +776,19 @@ namespace TinyTest {
         }
     }
 
-    function do_test(callable $test_function, array $exceptions, ?string $dataset_name, $value): TestResult
+    function do_test(callable $test_function, array $exceptions, ?string $dataset_name, $value, float $timeout = 0): TestResult
     {
         $result = new TestResult();
+        // set up alarm-based timeout if pcntl is available (integer seconds only, for hard kill)
+        $has_pcntl = $timeout >= 1 && function_exists('pcntl_alarm');
+        if ($has_pcntl) {
+            pcntl_async_signals(true);
+            pcntl_signal(SIGALRM, function () use ($timeout) {
+                throw new \RuntimeException("test timed out after {$timeout}s");
+            });
+            pcntl_alarm((int) ceil($timeout));
+        }
+        $t_start = $timeout > 0 ? microtime(true) : 0;
         try {
             ob_start();
             if ($value !== null) {
@@ -791,6 +812,19 @@ namespace TinyTest {
             $out = ob_get_contents();
             $result->set_console($out ?: "");
             ob_end_clean();
+            if ($has_pcntl) {
+                pcntl_alarm(0);
+                pcntl_signal(SIGALRM, SIG_DFL);
+            }
+        }
+        // fallback timeout check (always applies — pcntl_alarm only handles integer seconds)
+        if ($timeout > 0 && $result->pass) {
+            $elapsed = microtime(true) - $t_start;
+            if ($elapsed > $timeout) {
+                count_assertion_fail();
+                $result->pass = false;
+                $result->set_error(new TestError("test timed out after {$timeout}s (took " . number_format($elapsed, 3) . "s)", number_format($elapsed, 3) . "s", "{$timeout}s"));
+            }
         }
         return $result;
     }
@@ -798,16 +832,15 @@ namespace TinyTest {
     // run the test (remove pass by ref)
     function run_test(callable $test_function, array $test_data): array
     {
+        $timeout = isset($test_data['timeout']) ? (float) $test_data['timeout'] : 0;
         $results = array();
         if (isset($test_data['dataprovider'])) {
-            //print_r($test_data);
-            //die("hit\n");
             foreach (call_user_func($test_data['dataprovider']) as $dataset_name => $value) {
-                $result = do_test($test_function, $test_data['exception'], strval($dataset_name), $value);
+                $result = do_test($test_function, $test_data['exception'], strval($dataset_name), $value, $timeout);
                 $results[] = $result;
             }
         } else {
-            $results[] = do_test($test_function, $test_data['exception'], null, null);
+            $results[] = do_test($test_function, $test_data['exception'], null, null, $timeout);
         }
 
         return $results;
@@ -942,7 +975,8 @@ version: 1
     // a bit ugly
     // loop over all user included functions
     $coverage = array();
-    do_for_all($just_test_functions, function ($function_name) use (&$coverage, $options, $is_test_fn) {
+    $json_results = array();
+    do_for_all($just_test_functions, function ($function_name) use (&$coverage, &$json_results, $options, $is_test_fn) {
 
         // exclude functions that don't match test name signature
         if (!$is_test_fn($function_name, $options)) {
@@ -955,11 +989,49 @@ version: 1
         }
 
         // display the test we are running
-        $format_test_fn = (function_exists("\\user_format_test_run")) ? "\\user_format_test_run" : "\\TinyTest\\format_test_run";
-        echo $format_test_fn($function_name, $test_data, $options);
+        if (!$options['j']) {
+            $format_test_fn = (function_exists("\\user_format_test_run")) ? "\\user_format_test_run" : "\\TinyTest\\format_test_run";
+            echo $format_test_fn($function_name, $test_data, $options);
+        }
+
+        // handle @skip and @todo annotations
+        if (isset($test_data['skip']) || isset($test_data['todo'])) {
+            $reason = isset($test_data['todo']) ? $test_data['todo'] : $test_data['skip'];
+            $test_data['status'] = isset($test_data['todo']) ? 'TODO' : 'SKIP';
+            $GLOBALS['assert_skip_count'] = ($GLOBALS['assert_skip_count'] ?? 0) + 1;
+            if (!$options['j']) {
+                $label = $test_data['status'];
+                $out = CYAN . sprintf("%-4s", $label) . NORML;
+                if ($reason !== '') {
+                    $out .= GREY . " ($reason)" . NORML;
+                }
+                echo $out;
+            }
+            if ($options['j']) {
+                $json_entry = [
+                    'name' => $function_name,
+                    'file' => $test_data['file'],
+                    'status' => $test_data['status'],
+                    'duration' => 0,
+                    'assertions' => 0,
+                ];
+                if ($reason !== '') {
+                    $json_entry['reason'] = $reason;
+                }
+                $json_results[] = $json_entry;
+            }
+            return;
+        }
 
         // only list tests
         if ($options['l']) {
+            if ($options['j']) {
+                $json_results[] = [
+                    'name' => $function_name,
+                    'file' => $test_data['file'],
+                    'type' => $test_data['type'],
+                ];
+            }
             return;
         }
         $error = $result = $t0 = $t1 = null;
@@ -1010,31 +1082,82 @@ version: 1
             }, null) :
             get_error_log($test_data['phperror'], $options);
 
+        $duration = $t1 - $t0;
+        $assertion_count = $GLOBALS[ASSERT_CNT] - $pre_test_assert_count;
+
         if ($passed) {
             $test_data['status'] = "OK";
             if ($GLOBALS[ASSERT_CNT] === $pre_test_assert_count) {
                 count_assertion_fail();
                 $test_data['status'] = "IN";
             }
-            $success_display_fn = (function_exists("\\user_format_test_success")) ? "\\user_format_test_success" : "\\TinyTest\\format_test_success";
-            echo $success_display_fn($test_data, $options, $t1 - $t0);
+            if (!$options['j']) {
+                $success_display_fn = (function_exists("\\user_format_test_success")) ? "\\user_format_test_success" : "\\TinyTest\\format_test_success";
+                echo $success_display_fn($test_data, $options, $duration);
+            }
         } else {
-            $error_display_fn = (function_exists("\\user_format_assertion_error")) ? "\\user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
-            echo $error_display_fn($test_data, $options, $t1 - $t0);
+            if (!$options['j']) {
+                $error_display_fn = (function_exists("\\user_format_assertion_error")) ? "\\user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
+                echo $error_display_fn($test_data, $options, $duration);
+            }
         }
 
+        // collect JSON result
+        if ($options['j']) {
+            $json_entry = [
+                'name' => $function_name,
+                'file' => $test_data['file'],
+                'status' => $test_data['status'] ?? 'FAIL',
+                'duration' => round($duration, 6),
+                'assertions' => $assertion_count,
+            ];
+            if (!$passed && $test_data['error'] !== null) {
+                $ex = $test_data['error'];
+                $json_entry['error'] = [
+                    'message' => strip_ansi($ex->getMessage()),
+                    'file' => $ex->getFile(),
+                    'line' => $ex->getLine(),
+                ];
+            }
+            $json_results[] = $json_entry;
+        }
 
         gc_collect_cycles();
     });
 
     if (count($coverage) > 0) {
         //print_r($coverage);
-        echo "\ngenerating lcov.info...\n";
+        if (!$options['j']) {
+            echo "\ngenerating lcov.info...\n";
+        }
         file_put_contents("lcov.info", coverage_to_lcov($coverage, $options));
     }
 
     @unlink(ERR_OUT);
-    // display the test results
     $m1 = microtime(true);
-    echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions, using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
+
+    if ($options['j']) {
+        // JSON output mode
+        $output = [
+            'version' => (int) VER,
+            'tests' => $json_results,
+            'summary' => [
+                'total' => (int) $GLOBALS[ASSERT_CNT],
+                'passed' => (int) $GLOBALS['assert_pass_count'],
+                'failed' => (int) $GLOBALS['assert_fail_count'],
+                'incomplete' => count(array_filter($json_results, function ($r) { return ($r['status'] ?? '') === 'IN'; })),
+                'skipped' => count(array_filter($json_results, function ($r) { return in_array($r['status'] ?? '', ['SKIP', 'TODO']); })),
+                'duration' => round($m1 - $GLOBALS['m0'], 6),
+                'memory_kb' => (int) (memory_get_peak_usage(true) / 1024),
+            ],
+        ];
+        echo json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    } else {
+        // display the test results
+        $skip_count = $GLOBALS['assert_skip_count'] ?? 0;
+        $skip_str = $skip_count > 0 ? ", $skip_count skipped" : "";
+        echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions" . $skip_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
+    }
+
+    exit($GLOBALS['assert_fail_count'] > 0 ? 1 : 0);
 }
