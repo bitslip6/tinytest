@@ -89,6 +89,37 @@ namespace {
         assert_base_condition('objects_equal', $actual, $expected, $message);
     }
 
+    function assert_matches(string $actual, string $pattern, string $message) {
+        assert_base_condition(function(string $actual, string $pattern) {
+            return preg_match($pattern, $actual) === 1;
+        }, $actual, $pattern, $message);
+    }
+
+    function assert_not_matches(string $actual, string $pattern, string $message) {
+        assert_base_condition(function(string $actual, string $pattern) {
+            return preg_match($pattern, $actual) !== 1;
+        }, $actual, $pattern, $message);
+    }
+
+    function assert_count($actual, int $expected, string $message) {
+        $count = is_countable($actual) ? count($actual) : null;
+        assert_base_condition(function($count, $expected) {
+            return $count === $expected;
+        }, $count, $expected, $message);
+    }
+
+    function assert_empty($actual, string $message) {
+        assert_base_condition(function($actual, $expected) {
+            return empty($actual);
+        }, $actual, true, $message);
+    }
+
+    function assert_not_empty($actual, string $message) {
+        assert_base_condition(function($actual, $expected) {
+            return !empty($actual);
+        }, $actual, false, $message);
+    }
+
     function assert_identical($actual, $expected, string $message = "test failed") {
         assert_base_condition(function($actual, $expected) {
             $t1 = gettype($actual);
