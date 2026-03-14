@@ -735,7 +735,10 @@ namespace TinyTest {
         // read in all source files and parse the php tokens
         $tokens = array();
         do_for_allkey($coverage, function ($file) use (&$tokens) {
-            $tokens[$file] = token_get_all(file_get_contents($file));
+            $contents = file_get_contents($file);
+            if ($contents !== false) {
+                $tokens[$file] = token_get_all($contents);
+            }
         });
 
         // convert the tokens to a source map
