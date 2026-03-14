@@ -1,192 +1,343 @@
-# tinytest
+# TinyTest
 
-### PHP Testing designed for agentic workflows
+### PHP testing designed for agentic workflows
+
+A single-file, zero-dependency PHP test framework built for speed, simplicity, and AI-assisted development. Write tests as plain functions, run thousands in under a second, and let your coding agent generate, improve, and debug tests using built-in skills.
 
 ## Features
-* Single file easy to call from anywhere
-* Hyper Fast. Run thousands of tests in under a second
-* Designed for agentic coding. Includes test generation, test improvement and bug hunting skills
-* Helps your team create code that is easier for AI to reason about
-* Code coverage in lcov format _requires phpdbg_
-* Profiling in callgrind (Kcachegrind) format _requires xhprof_
-* Override functions for formatting, test selection, etc at runtime
-* Functional style - No classes to extend
-* Supports variety of test selection methods
-* Supports expected exceptions
-* Supports data providers for processing large voluimne test data and conditions
-* Generates full reports with code coverage in milliseconds
+
+* **Single file** — drop `tinytest.php` anywhere, no Composer required
+* **Fast** — run thousands of tests in under a second
+* **Agentic coding** — ships with skills for test generation, coverage analysis, and bug hunting
+* **Code coverage** — generates `lcov.info` for editor integration _(requires phpdbg)_
+* **Profiling** — xhprof and callgrind output _(requires xhprof/tideways)_
+* **Functional style** — no classes to extend, tests are plain functions
+* **JSON output** — machine-readable results for CI and agent consumption
+* **Extensible** — override formatting, test selection, and assertions at runtime
 
 [![asciicast](https://asciinema.org/a/pEnyZFEObOr2HWStjcM0SRtjb.svg)](https://asciinema.org/a/pEnyZFEObOr2HWStjcM0SRtjb)
 
 
 ## Install
+
 ```shell
 git clone https://github.com/bitslip6/tinytest
-sudo apt install php-phpdbg # (debian) - use your OS package manager or install from source
+# Optional: install phpdbg for code coverage
+sudo apt install php-phpdbg   # Debian/Ubuntu
 ```
-
 
 ## Quick Start
-setup.sh will install the tinytest agent skills under .pi/skills or .claude/skills and append 30 lines of test details to CLAUDE.md
+
+### With an AI coding agent (recommended)
+
+The setup script installs TinyTest skills and agent instructions into your project:
+
 ```shell
-cd ~/projects
-git clone https://github.com/bitslip6/tinytest
-cd ../my-app
-../tinytest/agent-integration/setup.sh
-claude -p '/generate-test file_to_test.php'
-tinytest -a -f tests/test_file_to_test.php
+cd ~/projects/my-app
+/path/to/tinytest/agent-integration/setup.sh .
 ```
 
+This creates:
+- `CLAUDE.md` with TinyTest conventions and the full assertion API reference
+- `.claude/skills/` with skills for generating, running, and fixing tests
+- `.claude/settings.local.json` with permission to run tinytest
+- A `tinytest` shell alias in your `.bashrc`/`.zshrc`
 
-## Manual Start
-first setup an alias to run the tinytest from phpdbg (we use phpdbg to generate code coverage and performance data)
+Then use your agent to generate tests:
 
+```shell
+claude -p '/generate-test src/Parser.php'
 ```
+
+### Manual setup
+
+Create a shell alias:
+
+```shell
+# With phpdbg (enables code coverage):
 alias tinytest='phpdbg -q -d xdebug.mode=off -rr -e /path/to/tinytest.php'
-# or if you prefer to not use phpdbg (code coverage will not be available)
+
+# Without phpdbg:
 alias tinytest='php /path/to/tinytest.php'
 ```
 
-phpdbg parameters  -q : squelch phpdbg startup messages  -d : disable xdebug warnings (no client to connect to)  -rr: run and exit -e : generate code coverage / profile info
+Write a test:
 
-if your project has a bringup procedure (constant defines - autoloader, etc) create a bootstrap file tests/bootstrap.php and include all of the shared test file initialization logic here. This file will be included before any test files anytime you launch tinytest with the -a flag
-
-
-then you can call tinytest by:
-```
-tinytest -a -v -v -f tests/test_helloworld.php -c
-```
-
-this will run all tests in test_my_test_file.php and generate a code coverage reports.
-
-
-add the following content to your test_helloworld.php:
 ```php
 <?php declare(strict_types=1);
 
-function test_hello_world() : string {
-  assert_eq(true, true, "oh no! true is not true!");
-  return "hello world!";
+function test_hello_world(): void {
+    assert_eq(1 + 1, 2, "basic math works");
 }
 ```
 
-**run the test**
+Run it:
 
-tinytest.php requires phpdbg (debug php build) for code coverage reports but can be run without coverage using a standard php >= 7.x intrepreter.  (see installing phpdbg for additional details). 
-
-```ShellSession
-php path/to/tinytest.php -f ./tests/test_hello_world.php
-
-/home/cory/tools/tinytest/tinytest.php Ver 1
-loading test file: [./tests/test_hello_world.php]                    OK
-testing function:  test_hello_world                                  OK
-  -> hello world!
-Memory usage: 2,048KB
+```shell
+tinytest -f tests/test_hello_world.php
 ```
 
 
-## Agentic Coding
-tinytest is designed to be used from your agent and ships with several useful skills for generating tests and finding bugs in your PHP code. When you add tinytest to a new project - generate a complete stack of unit tests for your codebase. Add the claude.md.template contents to your project's CALUDE.md (or your projects agent instructions) and then use the skills to generate your tests, find which functions still need test coverage, fix tests, refactor code into unit testable chunks, and do deep function/test inspection.
+## Writing Tests
 
-installing ripgrep and adding it to your allowed agent programs will increase the speed at which your agent can find call sites and see the actual usage patterns to generate better tests.
+Tests are plain PHP functions in global namespace. No classes, no inheritance.
 
+### Test file conventions
 
-## writing tests
-tinytest was created to support testing functional style code and the tests are simple php functions.
-See the examples folder for additional test info.
+- **File names** start with `test_` and end with `.php` (e.g., `test_parser.php`)
+- **Test functions** are prefixed with `test_`, `it_`, or `should_`
+- **A test with no assertions is marked incomplete** (`IN`) and counts as a failure
 
-
-**test assertions**
-The following assertion methods are provided for you if you choose to not use the php builtin assert() (or your runtime does not enabnle zend.assertions).  These assert methods also include additional log messages to show actual vs expected and can output additional data to the console. Add your own assertions to user_defined.php and tinytest will include them.  Checkout assertions.php for boilereplate.  Pull requests welcome.
-
-You can also place a project-specific `user_defined.php` in your working directory. Tinytest always loads its bundled `user_defined.php` first, then loads the one in your working directory if it exists and is a different file. This lets you add project-specific assertions without modifying the tinytest installation.
-
-**Important:** All user override functions (e.g. `user_is_test_file`, `user_format_test_run`, etc.) must be defined in the global namespace. Do not wrap them in a `namespace` declaration or they will not be detected.
-
-* assert_ture(bool $condition, string $message)  truthy
-* assert_false(bool $condition, string $message) falsy
-* assert_eq($actual, $expected, string $message) === really equals
-* assert_neq($actual, $expected, string $message) !== really not equals
-* assert_eqic($actual, $expected, string $message) equals ignore case (for strings) strcasecmp === 0
-* assert_gt($actual, $excected, string $message) assert actual is greater than expected
-* assert_lt($actual, $excected, string $message) assert actual is less than expected
-* assert_contains(string $haystack, string $needle, string $message) assert needle is in haystack
-* assert_not_contains(string $haystack, string $needle, string $message) assert needle is NOT in haystack
-* assert_icontains(string $haystack, string $needle, string $message) assert needle is in haystack ignore case
-
-
-```php
-<?php
-assert_true(false, "an error message", "optional log data to include on verbose output");
-```
-
-**test setup**
-There is no predefined "setup" method.  Simply create a function and call it as needed in your test file.
-_example:_
 ```php
 <?php declare(strict_types=1);
 
-include_once PROJECT_PATH_DIR . "/path/to/file/MyObject.php";
+require_once __DIR__ . '/../src/Parser.php';
 
-function setup_test() : MyObject {
-    return new MyObject("constructor args");
+function test_parse_returns_array(): void {
+    $result = parse("key=value");
+    assert_eq($result['key'], 'value', "should parse key=value pair");
 }
 
-function test_object_does_stuff() : void {
-    $myObject = setup_test();
-    $result = $myObject->does_stuff("input");
-    assert($result !== null, "does_stuff returned null");
-    assert_neq($result, "foobar", "does_stuff returned foobar!");
+function it_handles_empty_input(): void {
+    $result = parse("");
+    assert_empty($result, "empty input produces empty result");
+}
+
+function should_reject_malformed_input(): void {
+    assert_false(parse(null), "null input returns false");
 }
 ```
 
-you can add boilerplate to a bootstrap file and add it from the command line, this will run your boilerplate bootstrap once before every test file that is included:
-```shellsession
-php tinytest.php -b tests/bootstrap.php -d ./tests
-php tinytest.php -a -d ./tests
+### Test setup
+
+There is no magic `setUp` method. Create helper functions and call them:
+
+```php
+<?php declare(strict_types=1);
+
+require_once __DIR__ . '/../src/MyObject.php';
+
+function make_object(): MyObject {
+    return new MyObject("default args");
+}
+
+function test_object_does_stuff(): void {
+    $obj = make_object();
+    $result = $obj->does_stuff("input");
+    assert_neq($result, null, "does_stuff should return a value");
+}
 ```
 
-## exclude / include test
-you can skip over tests by their type annotation by excluding tests with the -e command line parameter.
-you can also only run included tests by using the -i command line parameter.  Both parameters can be chained to add additional included or excluded test types.
+### Bootstrap files
 
-example:
+For shared initialization (autoloaders, constants, database connections), create a bootstrap file:
+
+```shell
+# Explicit bootstrap:
+tinytest -b tests/bootstrap.php -d tests/
+
+# Auto-load tests/bootstrap.php if it exists:
+tinytest -a -d tests/
+```
+
+
+## Assertions
+
+All assertions are plain global functions. Parameter order is always **actual before expected**, **haystack before needle**, **message last**.
+
+Add custom assertions to `user_defined.php` — see [Custom Assertions](#custom-assertions) below.
+
+### Equality
+
+| Assertion | Description |
+|-----------|-------------|
+| `assert_eq($actual, $expected, "msg")` | Strict equality (`===`) |
+| `assert_neq($actual, $expected, "msg")` | Strict inequality (`!==`) |
+| `assert_eqic($actual, $expected, "msg")` | Case-insensitive string equality |
+| `assert_identical($actual, $expected, "msg")` | Type-aware deep equality (objects use property comparison) |
+
+### Comparison
+
+| Assertion | Description |
+|-----------|-------------|
+| `assert_true($condition, "msg")` | Truthy check |
+| `assert_false($condition, "msg")` | Falsy check |
+| `assert_gt($actual, $expected, "msg")` | Greater than (`>`) |
+| `assert_lt($actual, $expected, "msg")` | Less than (`<`) |
+
+### Strings
+
+| Assertion | Description |
+|-----------|-------------|
+| `assert_contains($haystack, $needle, "msg")` | String contains substring |
+| `assert_not_contains($haystack, $needle, "msg")` | String does not contain substring |
+| `assert_icontains($haystack, $needle, "msg")` | Case-insensitive string contains |
+| `assert_matches($actual, $pattern, "msg")` | Matches regex pattern |
+| `assert_not_matches($actual, $pattern, "msg")` | Does not match regex pattern |
+
+### Collections
+
+| Assertion | Description |
+|-----------|-------------|
+| `assert_count($actual, $expected, "msg")` | Count of countable equals expected |
+| `assert_empty($actual, "msg")` | Value is empty |
+| `assert_not_empty($actual, "msg")` | Value is not empty |
+| `assert_array_contains($needle, $haystack, "msg")` | Value exists in array _(defined in user_defined.php)_ |
+
+### Objects & Types
+
+| Assertion | Description |
+|-----------|-------------|
+| `assert_instanceof($actual, ClassName::class, "msg")` | Object is instance of class |
+| `assert_object($actual, $expected, "msg")` | Deep object property comparison |
+
+### Optional verbose output
+
+`assert_true`, `assert_false`, `assert_eq`, and `assert_contains` accept an optional final `$output` parameter for additional console output on failure:
+
+```php
+assert_eq($result, 42, "wrong answer", "debug: input was $input");
+```
+
+
+## Annotations
+
+Add annotations in the PHPDoc block above a test function.
+
+### @exception — expected exceptions
+
+The test passes if the listed exception is thrown. Do **not** use try/catch — TinyTest handles it internally:
+
+```php
+/**
+ * @exception InvalidArgumentException
+ */
+function test_rejects_negative(): void {
+    calculate_total(-5, 1);
+}
+```
+
+Multiple exception types (test passes if **any** is thrown):
+
+```php
+/**
+ * @exception InvalidArgumentException
+ * @exception RangeException
+ */
+function test_rejects_bad_input(): void {
+    process_data(null);
+}
+```
+
+Use fully qualified class names for namespaced exceptions:
+
+```php
+/**
+ * @exception App\Exceptions\ValidationException
+ */
+function test_validation_fails(): void {
+    validate_record([]);
+}
+```
+
+### @dataprovider — data-driven tests
+
+Run a test once per entry in a data set:
+
+```php
+function addition_data(): array {
+    return [
+        'one plus one'  => [1, 1, 2],
+        'two plus two'  => [2, 2, 4],
+        'ten plus ten'  => [10, 10, 20],
+    ];
+}
+
+/**
+ * @dataprovider addition_data
+ */
+function test_addition(array $data): void {
+    assert_eq($data[0] + $data[1], $data[2], "addition failed");
+}
+```
+
+### @type — categorize tests
+
+Tag tests for selective inclusion/exclusion:
+
 ```php
 /**
  * @type sql
  */
-funtion test_db_access() : void {
-  assert_true(db_connect(), "unable to connect to the db");
+function test_db_access(): void {
+    assert_true(db_connect(), "unable to connect to the db");
 }
 ```
 
-```shellsession
-php tinytest.php -f my_tests.php -i sql
-tinytest.php (Ver 8)
-loading test file: [my_tests.php                            ]  OK
-testing function:  test_db_access                              OK           in 0.08483996
-
-1 test, 1 passed, 0 failures/exceptions, using 2,048KB in 0.08483996 seconds
+```shell
+tinytest -f tests.php -i sql     # only run @type sql tests
+tinytest -f tests.php -e sql     # run everything except @type sql
 ```
 
-## performance profiling
+Both `-i` and `-e` can be repeated to include/exclude multiple types.
 
-install the [xhprof extension](https://github.com/tideways/php-xhprof-extension).
-you can install from source, pecl or maybe your OS distribution.  Tideways xhprof extension is almost fully compatible with the original xhprof extension, and tinytest
-can be edited to use xhprof as well by changing 2 lines. [php 7.0 patched xhprof ](https://github.com/patrickallaert/xhprof)
+### @skip / @todo — skip tests
 
-Run your test with the -k or -p options.  One test_name.xhprof.json or callgrind.test_name file will be generated foreach test. callgrind files can be opened with kcachegrind on Linux / Mac.
+```php
+/**
+ * @skip database not available in CI
+ */
+function test_requires_db(): void { ... }
 
+/**
+ * @todo implement after v2 API ships
+ */
+function test_new_endpoint(): void { ... }
+```
 
-## code coverage
+### @ambiguous — flag uncertain behavior
 
-Code coverage reports are generated by default when using phpdbg.  you can add code coverage to VSCode by installing the [coverage gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) plugin to VSCode.  Coverage Gutters looks for the generated lcov.info files by default but this can be changed in the coverage gutters settings.  Make sure the generated lcov.info is in your project's root directory.  You probably want to add the generated lcov.info to your .gitignore as well.
+Mark a test where the correct behavior is not obvious. The test still runs, but is flagged in output:
 
-__You can exclude code coverage reports by adding the -e command line option.__
+```php
+/**
+ * @ambiguous returns null on some systems, false on others
+ */
+function test_edge_case(): void {
+    assert_eq(get_value(), null, "expected null");
+}
+```
 
-### @covers annotation
+### @timeout — time limit
 
-Add a `@covers` annotation in the file-level docblock of your test file to restrict coverage reporting to specific source files. Only the listed files will appear in the coverage output (both `-r` text and `-j` JSON). Paths are resolved relative to the test file's directory.
+Fail the test if it takes longer than the specified duration. Supports decimal values:
+
+```php
+/**
+ * @timeout 0.5
+ */
+function test_fast_response(): void {
+    $result = fetch_data();
+    assert_not_empty($result, "should return data");
+}
+```
+
+### @phperror — expected PHP errors
+
+Expect a specific PHP error type (E_WARNING, E_NOTICE, etc.):
+
+```php
+/**
+ * @phperror E_WARNING
+ */
+function test_triggers_warning(): void {
+    file_get_contents('/nonexistent/path');
+}
+```
+
+### @covers — restrict coverage scope
+
+File-level annotation (in the docblock at the top of the test file, before any function) to restrict coverage reporting to specific source files:
 
 ```php
 <?php declare(strict_types=1);
@@ -196,127 +347,290 @@ Add a `@covers` annotation in the file-level docblock of your test file to restr
  */
 
 require_once __DIR__ . '/../src/Parser.php';
-require_once __DIR__ . '/../src/Validator.php';
-
-function test_parse_header(): void {
-    // ...
-}
 ```
 
-When no `@covers` annotations are present, all source files that were executed during the test run are included in coverage reports (the default behavior). The `@covers` annotation only affects coverage reporting — it does not change which files are loaded or tested.
+Paths are resolved relative to the test file. When no `@covers` is present, all executed source files appear in coverage output.
 
 
-## creating test data
-We borrowed the @dataprovider annotation from phpunit.  To send test data as invocation for each item in the dataset, simply add the @dataprovider annotation to your phpdoc block.
+## Command Line Reference
 
-```php
-<?php declare(strict_types=1);
-
-function addition_test_data() : array {
-  return array(
-    "one plus one = 2" => array(1, 1, 2),
-    "two plus two = 4" => array(2, 2, 4),
-    "10 plus 10 = 20" => array(10, 10, 200)
-  );
-}
-
-/**
- * @dataprovider addition_test_data
- */
-function test_addition(array $data) : void {
-  assert_eq(($data[0] + $data[1]), $data[2], "addition failed");
-}
-
-function multiplication_test_data() : array {
-  for ($i = 0; $i < 5; $i++) {
-    yield array("multiply 3 * $i" => array(3, $i, 3*$i));
-   }
-}
-
-/**
- * @dataprovider mulitplication_test_data
- */
-function test_mulitplication(array $data) : void {
-  assert_eq(($data[0] * $data[1]), $data[2], "multiplication failed");
-}
+```
+tinytest [options]
 ```
 
-**output:** 
-```ShellSession
-tinytest/tinytest.php -f ./tests/test_hello_world.php
-tinytest/tinytest.php Ver 5
-loading test file: [./tests/test_hello_world.php]                    OK
-testing function:  test_hello_world                                  OK
-  -> hello world!
-testing function:  test_addition                                    error
-  /home/cory/tools/bitwaf/bitwaf/tests/test_hello_world.php:20
-  expected [200] got [20] addition failed
-  -> failed on dataset member [10 plus 10 = 20]
-generating lconv.info...
-Memory usage: 2,048KB
+| Flag | Description |
+|------|-------------|
+| `-f <file>` | Load and run tests from a file |
+| `-d <directory>` | Load and run all test files in a directory |
+| `-t <test_name>` | Run only the named test function |
+| `-i <type>` | Include only tests with this `@type` (repeatable) |
+| `-e <type>` | Exclude tests with this `@type` (repeatable) |
+| `-b <file>` | Include a bootstrap file before running tests |
+| `-a` | Auto-load `bootstrap.php` from the test directory |
+| `-c` | Generate code coverage (`lcov.info`) — requires phpdbg |
+| `-r` | Display code coverage totals to console (implies `-c`) |
+| `-j` | Output results as JSON |
+| `-l` | List tests without running them |
+| `-v` | Verbose output (show stack traces on failure) |
+| `-q` | Quiet mode — suppress test output (up to `-q -q -q`) |
+| `-m` | Monochrome console output (no ANSI colors) |
+| `-s` | Suppress PHP error reporting |
+| `-p` | Save xhprof profiling data (requires tideways/xhprof) |
+| `-k` | Save callgrind profiling data (for KCachegrind) |
+| `-n` | Skip profiling for low-overhead functions |
+| `-w` | Use wall time for callgrind (default: CPU time) |
+
+### Common recipes
+
+```shell
+# Run a single test file
+tinytest -f tests/test_parser.php
+
+# Run all tests in a directory
+tinytest -d tests/
+
+# Run a single test function
+tinytest -f tests/test_parser.php -t test_parse_header
+
+# Verbose output with stack traces
+tinytest -v -f tests/test_parser.php
+
+# JSON output for CI/agent consumption
+tinytest -j -f tests/test_parser.php
+
+# Code coverage with console summary
+tinytest -r -c -f tests/test_parser.php
+
+# JSON output with code coverage
+tinytest -j -c -f tests/test_parser.php
+
+# Run with bootstrap
+tinytest -a -d tests/
+
+# Run only integration tests
+tinytest -d tests/ -i integration
+
+# Run everything except slow tests
+tinytest -d tests/ -e slow
 ```
 
-As you can see there is an error in our test data, we added an extra 0 to the expected test output and produced an error.  Change 200 to 20, repeat the test and it will succeed.
 
-## JSON output
+## JSON Output
 
-Use the `-j` flag to get machine-readable JSON output instead of colored terminal text:
+Use `-j` for machine-readable output:
 
-```shellsession
-php tinytest.php -j -f ./tests/test_hello_world.php
+```shell
+tinytest -j -f tests/test_parser.php
 ```
 
-Output format:
 ```json
 {
   "version": 11,
   "tests": [
-    {"name": "test_foo", "file": "test_x.php", "status": "OK", "duration": 0.001, "assertions": 3},
-    {"name": "test_bar", "file": "test_x.php", "status": "FAIL", "duration": 0.001,
-     "error": {"message": "expected [42] got [41] \"values differ\"", "file": "test_x.php", "line": 28}}
+    {
+      "name": "test_parse_header",
+      "file": "tests/test_parser.php",
+      "status": "OK",
+      "duration": 0.001,
+      "assertions": 3
+    },
+    {
+      "name": "test_parse_invalid",
+      "file": "tests/test_parser.php",
+      "status": "FAIL",
+      "duration": 0.001,
+      "error": {
+        "message": "expected [42] got [41] \"values differ\"",
+        "file": "tests/test_parser.php",
+        "line": 28
+      }
+    }
   ],
-  "summary": {"total": 2, "passed": 1, "failed": 1, "incomplete": 0, "duration": 0.002, "memory_kb": 2048}
+  "summary": {
+    "total": 2,
+    "passed": 1,
+    "failed": 1,
+    "incomplete": 0,
+    "skipped": 0,
+    "ambiguous": 0,
+    "duration": 0.002,
+    "memory_kb": 2048
+  }
 }
 ```
 
-Combine with `-l` to list tests as JSON without running them:
-```shellsession
-php tinytest.php -j -l -f ./tests/test_hello_world.php
+With `-c`, a `coverage` key is added containing per-file function coverage data:
+
+```json
+{
+  "coverage": {
+    "/path/to/src/Parser.php": {
+      "functions_total": 10,
+      "functions_covered": 7,
+      "covered_functions": [
+        {"name": "parse_header", "line": 12}
+      ],
+      "uncovered_functions": [
+        {"name": "validate_input", "line": 108}
+      ]
+    }
+  }
+}
 ```
 
-## Claude Code integration
+List tests without running them:
 
-TinyTest includes first-class integration with [Claude Code](https://claude.com/claude-code) for AI-assisted test generation, execution, and debugging.
-
-### Quick setup
-
-Run the setup script from your project directory:
-
-```shellsession
-bash /path/to/tinytest/claude-integration/setup.sh .
+```shell
+tinytest -j -l -f tests/test_parser.php
 ```
 
-This will:
-1. Create a `CLAUDE.md` with TinyTest conventions and assertion reference
-2. Install Claude Code skills for generating, running, and fixing tests
-3. Create `.claude/settings.local.json` with permission to run tinytest
 
-### What's included
+## Code Coverage
+
+Code coverage requires [phpdbg](https://www.php.net/manual/en/book.phpdbg.php), the interactive PHP debugger bundled with most PHP distributions.
+
+```shell
+# Install phpdbg
+sudo apt install php-phpdbg          # Debian/Ubuntu
+brew install php                      # macOS (included with Homebrew PHP)
+
+# Run tests with coverage
+tinytest -c -f tests/test_parser.php
+
+# Run with coverage summary printed to console
+tinytest -r -c -f tests/test_parser.php
+```
+
+This generates an `lcov.info` file in the current directory. Use it with:
+
+- **VS Code** — install [Coverage Gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) to see coverage inline
+- **CI pipelines** — most CI services accept `lcov.info` for coverage reporting
+
+> **Tip:** Add `lcov.info` to your `.gitignore`.
+
+
+## Performance Profiling
+
+Install the [tideways xhprof extension](https://github.com/tideways/php-xhprof-extension) (or the original [xhprof](https://github.com/patrickallaert/xhprof)):
+
+```shell
+# xhprof format (one .xhprof.json per test)
+tinytest -p -f tests/test_parser.php
+
+# callgrind format (open with KCachegrind)
+tinytest -k -f tests/test_parser.php
+
+# callgrind with wall time instead of CPU time
+tinytest -k -w -f tests/test_parser.php
+
+# Skip low-overhead functions in profile output
+tinytest -k -n -f tests/test_parser.php
+```
+
+
+## Custom Assertions
+
+Add project-specific assertions to `user_defined.php`. TinyTest loads its bundled `user_defined.php` first, then loads one from your working directory if it exists. This lets you add assertions without modifying the TinyTest installation.
+
+```php
+<?php
+// user_defined.php in your project root
+
+function assert_json_valid(string $json, string $message): void {
+    TinyTest\count_assertion();
+    json_decode($json);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        throw new TinyTest\TestError($message, $json, "valid JSON");
+    }
+    TinyTest\count_assertion_pass();
+}
+```
+
+**Important:** All user override functions must be defined in the **global namespace**. Do not wrap them in a `namespace` declaration.
+
+### Override functions
+
+You can override TinyTest's built-in formatting and test selection by defining these functions in `user_defined.php`:
+
+| Function | Purpose |
+|----------|---------|
+| `user_format_test_run($name, $data, $opts)` | Customize the "running test..." message |
+| `user_format_test_success($data, $opts, $time)` | Customize the success output |
+| `user_format_assertion_error($data, $opts, $time)` | Customize the failure output |
+| `user_is_test_file($filename, $opts)` | Custom logic for identifying test files |
+| `user_is_test_function($funcname, $opts)` | Custom logic for identifying test functions |
+
+
+## Agentic Coding Skills
+
+TinyTest ships with skills that AI coding agents can use to generate, analyze, and improve your test suite. Install them with the [setup script](#quick-start) or copy them manually from `agent-integration/skills/`.
+
+| Skill | Command | Description |
+|-------|---------|-------------|
+| **generate-test** | `/generate-test <file>` | Generate a complete test file for a PHP source file |
+| **run-tests** | `/run-tests [file\|dir]` | Run tests and report structured results |
+| **fix-test** | `/fix-test <file>` | Diagnose and fix failing tests |
+| **file-coverage** | `/file-coverage` | Scan project for source files missing tests and generate them |
+| **cover-file** | `/cover-file <file>` | Achieve full function coverage for a single source file |
+| **test-line-coverage** | `/test-line-coverage <file>` | Achieve full statement and branch coverage by analyzing `lcov.info` |
+| **cover-functions** | `/cover-functions [dir]` | Run coverage, find untested functions, generate tests for them |
+| **analyze-function** | `/analyze-function <func>` | Deep analysis of a single function for test generation |
+| **refactor-testable** | `/refactor-testable <file>` | Refactor code into unit-testable chunks |
+
+### Recommended workflow
+
+```
+1.  /file-coverage                     # generate initial test files for all source files
+2.  /cover-file src/Parser.php         # fill in function coverage for a file
+3.  /test-line-coverage src/Parser.php # achieve full statement/branch coverage
+4.  /fix-test tests/test_parser.php    # fix any remaining failures
+```
+
+> **Tip:** Install [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) and add it to your agent's allowed programs. It helps the agent find call sites and usage patterns to generate better tests.
+
+
+## Agent Integration Setup
+
+### Automated
+
+```shell
+cd /path/to/my-project
+/path/to/tinytest/agent-integration/setup.sh .
+```
+
+### Manual
+
+1. Copy `agent-integration/CLAUDE.md.template` to your project root as `CLAUDE.md`, replacing `{{TINYTEST_PATH}}` with the path to tinytest
+2. Copy skill directories from `agent-integration/skills/` to `.claude/skills/`
+3. Add tinytest to `.claude/settings.local.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(php /path/to/tinytest/tinytest.php*)"
+    ]
+  }
+}
+```
+
+### What the setup script installs
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| CLAUDE.md template | `claude-integration/CLAUDE.md.template` | Complete API reference so Claude uses correct assertions |
-| Generate test skill | `claude-integration/skills/generate-test/SKILL.md` | Generates tests for any PHP source file |
-| Run tests skill | `claude-integration/skills/run-tests/SKILL.md` | Runs tests and reports structured results |
-| Fix test skill | `claude-integration/skills/fix-test/SKILL.md` | Diagnoses and fixes failing tests |
+| Agent instructions | `CLAUDE.md` | Assertion API reference and TinyTest conventions |
+| Skills | `.claude/skills/` | Test generation, execution, and debugging skills |
+| Agent definitions | `.pi/agents/`, `.claude/agents/` | Sub-agent definitions (if pi is detected) |
+| Permissions | `.claude/settings.local.json` | Allow agent to run tinytest |
+| Shell alias | `~/.bashrc` / `~/.zshrc` | `tinytest` command |
 
-### Manual setup
 
-If you prefer to set things up manually:
+## Requirements
 
-1. Copy `claude-integration/CLAUDE.md.template` to your project root as `CLAUDE.md`, replacing `{{TINYTEST_PATH}}` with the actual path to tinytest
-2. Copy skill directories from `claude-integration/skills/` to `.claude/skills/` in your project (each skill is a directory containing `SKILL.md`)
+- **PHP 7.0+** (PHP 8.x recommended)
+- **phpdbg** — for code coverage _(optional, bundled with most PHP distributions)_
+- **tideways/xhprof** — for profiling _(optional)_
 
-#### todo
-* add multithreaded support for large test suites
+## Todo
 
+- Add multithreaded support for large test suites
