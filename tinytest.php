@@ -374,7 +374,9 @@ namespace TinyTest {
     function read_file_covers(string $file): array
     {
         $contents = file_get_contents($file);
-        if ($contents === false) { return []; }
+        if ($contents === false) {
+            return [];
+        }
         // take only the header — everything before first function/class/trait/interface/enum
         $header = preg_split('/^\s*(?:function |class |trait |interface |enum )/m', $contents)[0];
         preg_match_all('/@covers\s+(.+)/', $header, $matches);
@@ -500,7 +502,9 @@ namespace TinyTest {
     // find the function, branch or statement at lineno for source_listing
     function find_index_lineno_between(array $source_listing, int $lineno, string $type): int
     {
-        if (empty($source_listing)) { return -1; }
+        if (empty($source_listing)) {
+            return -1;
+        }
         for ($i = 0, $m = max(array_keys($source_listing)); $i < $m; $i++) {
             if (!isset($source_listing[$i])) {
                 continue;
@@ -622,9 +626,55 @@ namespace TinyTest {
         $lcov = array();
         // token types that introduce a named block whose name should NOT be treated as a function
         $skip_name_tokens = array('T_NAMESPACE', 'T_CLASS', 'T_INTERFACE', 'T_TRAIT');
-        if (defined('T_ENUM')) { $skip_name_tokens[] = 'T_ENUM'; }
+        if (defined('T_ENUM')) {
+            $skip_name_tokens[] = 'T_ENUM';
+        }
         // PHP type keywords that should never be treated as function names
         $type_hint_names = explode(' ', 'string int float bool array void null true false never mixed object callable iterable self static parent');
+
+        // token types that represent executable statements (allowlist for DA entries)
+        $executable_tokens = array(
+            'T_ECHO',
+            'T_PRINT',
+            'T_RETURN',
+            'T_YIELD',
+            'T_THROW',
+            'T_FOREACH',
+            'T_FOR',
+            'T_WHILE',
+            'T_DO',
+            'T_SWITCH',
+            'T_CASE',
+            'T_DEFAULT',
+            'T_BREAK',
+            'T_CONTINUE',
+            'T_TRY',
+            'T_CATCH',
+            'T_FINALLY',
+            'T_ELSE',
+            'T_ELSEIF',
+            'T_EXIT',
+            'T_INCLUDE',
+            'T_INCLUDE_ONCE',
+            'T_REQUIRE',
+            'T_REQUIRE_ONCE',
+            'T_VARIABLE',
+            'T_NEW',
+            'T_CLONE',
+            'T_UNSET',
+            'T_EMPTY',
+            'T_ISSET',
+            'T_GLOBAL',
+            'T_GOTO',
+            'T_DECLARE',
+            'T_CONST',
+        );
+        // add tokens that may not exist in older PHP versions
+        foreach (array('T_FN', 'T_MATCH', 'T_YIELD_FROM') as $opt_token) {
+            if (defined($opt_token)) {
+                $executable_tokens[] = $opt_token;
+            }
+        }
 
         foreach ($tokens as $file => $tokens) {
             $lcov[$file] = array("fn" => array(), "da" => array(), "brda" => array());
@@ -694,13 +744,16 @@ namespace TinyTest {
                     $skip_next_name = false;
                 } else if ($nm == "T_STRING") {
                     // handle user and system function calls (not type hints)
-                    if (!in_array(strtolower($token[1]), $type_hint_names) &&
-                        (in_array($token[1], $funcs['internal']) || in_array($token[1], $funcs['user']))) {
+                    if (
+                        !in_array(strtolower($token[1]), $type_hint_names) &&
+                        (in_array($token[1], $funcs['internal']) || in_array($token[1], $funcs['user']))
+                    ) {
                         array_push($lcov[$file]["da"], new_line_definition($lineno, "S", "da", $lineno));
                     }
                 } else if ($nm == "T_IF") {
                     array_push($lcov[$file]["brda"], new_line_definition($lineno, $src, "brda", $lineno));
-                } else {
+                } else if (in_array($nm, $executable_tokens)) {
+                    // only count executable statement tokens as DA entries
                     array_push($lcov[$file]["da"], new_line_definition($lineno, "E", "da", $lineno));
                 }
             }
@@ -1298,8 +1351,12 @@ version: 1
                 'total' => (int) $GLOBALS[ASSERT_CNT],
                 'passed' => (int) $GLOBALS['assert_pass_count'],
                 'failed' => (int) $GLOBALS['assert_fail_count'],
-                'incomplete' => count(array_filter($json_results, function ($r) { return ($r['status'] ?? '') === 'IN'; })),
-                'skipped' => count(array_filter($json_results, function ($r) { return in_array($r['status'] ?? '', ['SKIP', 'TODO']); })),
+                'incomplete' => count(array_filter($json_results, function ($r) {
+                    return ($r['status'] ?? '') === 'IN';
+                })),
+                'skipped' => count(array_filter($json_results, function ($r) {
+                    return in_array($r['status'] ?? '', ['SKIP', 'TODO']);
+                })),
                 'ambiguous' => (int) ($GLOBALS['assert_ambiguous_count'] ?? 0),
                 'duration' => round($m1 - $GLOBALS['m0'], 6),
                 'memory_kb' => (int) (memory_get_peak_usage(true) / 1024),
@@ -1325,6 +1382,11 @@ version: 1
         $cov_str = $fn_total > 0 ? ", $cov_total/$fn_total functions covered" : "";
         $uncov_str = $uncov_total > 0 ? ", $uncov_total uncovered" : "";
         echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions" . $skip_str . $ambig_str . $cov_str . $uncov_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
+    }
+
+    // run any registered cleanup callbacks (shutdown handlers don't fire under phpdbg)
+    foreach ($GLOBALS['_tinytest_cleanup'] ?? [] as $cb) {
+        $cb();
     }
 
     exit($GLOBALS['assert_fail_count'] > 0 ? 1 : 0);
