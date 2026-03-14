@@ -81,7 +81,36 @@ if [ ! -d "$PROJECT_DIR/tests" ]; then
     echo "[+] Created tests/ directory"
 fi
 
+# 5. Add tinytest shell alias
+TINYTEST_PHP="$TINYTEST_DIR/tinytest.php"
+ALIAS_LINE="alias tinytest='phpdbg -q -d xdebug.mode=off -rr -e $TINYTEST_PHP'"
+ALIAS_ADDED=false
+
+for RC_FILE in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [ -f "$RC_FILE" ]; then
+        if ! grep -qF "alias tinytest=" "$RC_FILE"; then
+            echo "" >> "$RC_FILE"
+            echo "# TinyTest alias" >> "$RC_FILE"
+            echo "$ALIAS_LINE" >> "$RC_FILE"
+            echo "[+] Added tinytest alias to $(basename "$RC_FILE")"
+            ALIAS_ADDED=true
+        else
+            echo "[!] tinytest alias already exists in $(basename "$RC_FILE") — skipping"
+            ALIAS_ADDED=true
+        fi
+    fi
+done
+
+if [ "$ALIAS_ADDED" = false ]; then
+    echo "[!] No .bashrc or .zshrc found. Add this alias manually:"
+    echo "    $ALIAS_LINE"
+fi
+
 echo ""
 echo "Setup complete! Claude Code can now:"
 echo "  - Use TinyTest assertions and conventions (via CLAUDE.md)"
 echo "  - Generate, run, and fix tests (via skills)"
+echo ""
+echo "To start using tinytest, reload your shell and run:"
+echo "  source ~/.bashrc  # or: source ~/.zshrc"
+echo "  tinytest -f tests/test_example.php"
