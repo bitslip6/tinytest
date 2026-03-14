@@ -413,7 +413,7 @@ namespace TinyTest {
                     array_push($result['exception'], $last);
                 } else if ($matches[1] === "phperror") {
                     array_push($result['phperror'], $matches[2]);
-                } else if ($matches[1] === "skip" || $matches[1] === "todo") {
+                } else if ($matches[1] === "skip" || $matches[1] === "todo" || $matches[1] === "ambiguous") {
                     $result[$matches[1]] = trim($matches[2]);
                 } else {
                     $result[$matches[1]] = $last;
@@ -1225,6 +1225,15 @@ version: 1
             }
         }
 
+        // track @ambiguous tests (test still runs, just flagged)
+        if (isset($test_data['ambiguous'])) {
+            $GLOBALS['assert_ambiguous_count'] = ($GLOBALS['assert_ambiguous_count'] ?? 0) + 1;
+            if (!$options['j']) {
+                $reason = $test_data['ambiguous'];
+                echo YELLOW . " AMBG" . NORML . ($reason !== '' ? GREY . " ($reason)" . NORML : '');
+            }
+        }
+
         // collect JSON result
         if ($options['j']) {
             $json_entry = [
@@ -1234,6 +1243,12 @@ version: 1
                 'duration' => round($duration, 6),
                 'assertions' => $assertion_count,
             ];
+            if (isset($test_data['ambiguous'])) {
+                $json_entry['ambiguous'] = true;
+                if ($test_data['ambiguous'] !== '') {
+                    $json_entry['ambiguous_reason'] = $test_data['ambiguous'];
+                }
+            }
             if (!$passed && $test_data['error'] !== null) {
                 $ex = $test_data['error'];
                 $json_entry['error'] = [
@@ -1282,6 +1297,7 @@ version: 1
                 'failed' => (int) $GLOBALS['assert_fail_count'],
                 'incomplete' => count(array_filter($json_results, function ($r) { return ($r['status'] ?? '') === 'IN'; })),
                 'skipped' => count(array_filter($json_results, function ($r) { return in_array($r['status'] ?? '', ['SKIP', 'TODO']); })),
+                'ambiguous' => (int) ($GLOBALS['assert_ambiguous_count'] ?? 0),
                 'duration' => round($m1 - $GLOBALS['m0'], 6),
                 'memory_kb' => (int) (memory_get_peak_usage(true) / 1024),
             ],
@@ -1294,6 +1310,8 @@ version: 1
         // display the test results
         $skip_count = $GLOBALS['assert_skip_count'] ?? 0;
         $skip_str = $skip_count > 0 ? ", $skip_count skipped" : "";
+        $ambiguous_count = $GLOBALS['assert_ambiguous_count'] ?? 0;
+        $ambig_str = $ambiguous_count > 0 ? ", $ambiguous_count ambiguous" : "";
         $cov_total = 0;
         $uncov_total = 0;
         foreach ($coverage_data as $file_data) {
@@ -1303,7 +1321,7 @@ version: 1
         $fn_total = $cov_total + $uncov_total;
         $cov_str = $fn_total > 0 ? ", $cov_total/$fn_total functions covered" : "";
         $uncov_str = $uncov_total > 0 ? ", $uncov_total uncovered" : "";
-        echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions" . $skip_str . $cov_str . $uncov_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
+        echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions" . $skip_str . $ambig_str . $cov_str . $uncov_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
     }
 
     exit($GLOBALS['assert_fail_count'] > 0 ? 1 : 0);
