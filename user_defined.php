@@ -22,8 +22,8 @@
  */
 function assert_array_contains($needle, array $haystack, string $message)
 {
-    TinyTest\count_assertion();
     if (!in_array($needle, $haystack)) {
+        TinyTest\count_assertion_fail();
         throw new TinyTest\TestError("array does not contain [$needle], \"$message\"", join(', ', $haystack), $needle);
     }
     TinyTest\count_assertion_pass();
