@@ -38,7 +38,7 @@ cd ~/projects/my-app
 ```
 
 This creates:
-- `CLAUDE.md` with TinyTest conventions and the full assertion API reference
+- `CLAUDE.md` with TinyTest conventions and skills reference
 - `.claude/skills/` with skills for generating, running, and fixing tests
 - `.claude/settings.local.json` with permission to run tinytest
 - A `tinytest` shell alias in your `.bashrc`/`.zshrc`
