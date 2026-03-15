@@ -47,8 +47,8 @@ namespace {
 
     function assert_contains(?string $haystack, ?string $needle, string $message) {
         assert_base_condition(function(?string $haystack, ?string $needle) {
-            $p = strpos($haystack, $needle);
-            return ($haystack != null && $p !== false); }, $haystack, $needle, $message);
+            if ($haystack === null || $needle === null) { return false; }
+            return strpos($haystack, $needle) !== false; }, $haystack, $needle, $message);
     }
 
     function assert_not_contains(?string $haystack, ?string $needle, string $message) {
