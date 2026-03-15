@@ -15,13 +15,27 @@ phpdbg -qrr -d xdebug.mode=off {{TINYTEST_PATH}}/tinytest.php -j -c -d tests/  #
 
 ## Skills
 
-- `/generate-test` — generate tests for a PHP source file (includes full assertion API reference)
-- `/run-tests` — run tests and report structured results
-- `/fix-test` — diagnose and fix a failing test
-- `/refactor-testable` — extract business logic into pure, testable functions and generate tests
-- `/cover-functions` — run coverage analysis, find untested functions, and generate tests for them (requires phpdbg)
-- `/audit-coverage` — full audit: scan for uncovered functions, analyze each for bugs, generate exhaustive tests, report findings to operator (requires phpdbg)
-- `/analyze-function` — deep-analyze a single function: trace all paths, find bugs, generate exhaustive tests
+### Utilities
+- `/test-run` — run tests and report results (file, directory, or single test)
+- `/test-fix` — diagnose and fix a failing test
+- `/test-report` — read-only project coverage dashboard: per-file health, failing/incomplete tests, unresolved annotations (requires phpdbg)
+
+### Single File
+- `/test-generate <file>` — generate an initial test file for a PHP source file (includes full assertion/annotation reference)
+- `/test-improve <file>` — review an existing test file for quality issues: weak assertions, PHPUnit drift, incomplete tests, anti-patterns — then fix them
+- `/test-cover-file <file>` — achieve full coverage for one file: functions first, then every reachable line and branch (requires phpdbg)
+
+### Single Function
+- `/test-analyze <file> <function>` — deep-analyze one function: trace all paths, find callers, classify bugs, generate exhaustive tests
+- `/test-regression <function> "<bug description>"` — write a regression test for a known bug
+
+### Project-Wide
+- `/test-bootstrap` — scan all source files, register new ones in test_sources.md, generate initial test files for each
+- `/test-audit` — full coverage audit: find every uncovered function, analyze in context, generate tests, produce bug/smell report (requires phpdbg)
+
+### Refactoring & Adoption
+- `/test-refactor <file>` — extract untestable business logic into pure functions and generate tests for them
+- `/test-migrate <file|dir>` — migrate PHPUnit test files to TinyTest (structural conversion, assertion remapping, mock files)
 
 ## Quick Reference
 

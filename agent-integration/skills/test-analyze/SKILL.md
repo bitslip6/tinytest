@@ -1,6 +1,6 @@
 ---
-name: analyze-function
-description: Deep-analyze a single PHP function — trace all code paths, find bugs, generate exhaustive TinyTest unit tests. Takes a file path and function name.
+name: test-analyze
+description: Deep-analyze a single PHP function — trace all code paths, find callers, classify bugs and smells, and generate exhaustive TinyTest unit tests. Useful before /test-cover-file when a function is complex.
 argument-hint: "<file.php> <function_name>"
 ---
 
@@ -88,11 +88,10 @@ Classify findings:
 
 Create or append to `tests/test_<source_name>.php`.
 
-**Requirements:**
+Follow all TinyTest conventions (see `/test-generate` for the full assertion and annotation reference):
 - One test per path minimum, more for complex paths
-- Use `@dataprovider` when multiple inputs test the same path pattern
-- Use `@exception` for throw paths (no try/catch)
-- All TinyTest assertions only: `assert_eq`, `assert_true`, `assert_false`, `assert_contains`, `assert_neq`, `assert_gt`, `assert_lt`, `assert_instanceof`
+- `@dataprovider` when multiple inputs test the same path pattern
+- `@exception` for throw paths — no try/catch
 - For bugs: write test documenting current (buggy) behavior with `// BUG:` comment
 - Functions in global namespace, `test_` prefix
 
@@ -106,9 +105,9 @@ require_once __DIR__ . '/../path/to/source.php';
 
 function <function_name>_path_data(): array {
     return [
-        'normal input'     => [<input>, <expected>],
-        'edge: empty'      => ['', <expected>],
-        'edge: boundary'   => [<boundary_input>, <expected>],
+        'normal input'   => [<input>, <expected>],
+        'edge: empty'    => ['', <expected>],
+        'edge: boundary' => [<boundary_input>, <expected>],
     ];
 }
 
@@ -126,11 +125,6 @@ function test_<function_name>_rejects_null(): void {
     <function_name>(null);
 }
 
-function test_<function_name>_strict_truncates(): void {
-    $result = <function_name>(str_repeat("a", 300), true);
-    assert_eq(strlen($result), 255, "strict mode should truncate to 255");
-}
-
 // BUG: returns null on malformed input but callers assume non-null
 function test_<function_name>_malformed_returns_null(): void {
     $result = <function_name>("garbage");
@@ -139,6 +133,8 @@ function test_<function_name>_malformed_returns_null(): void {
 ```
 
 ## Step 7: Run and Verify
+
+Find the tinytest path from `AGENTS.md` or `CLAUDE.md` in the project root.
 
 ```bash
 php <tinytest_path>/tinytest.php -v -f tests/test_<name>.php
@@ -149,7 +145,7 @@ Fix test errors (not source bugs). Re-run until passing.
 ## Step 8: Report
 
 Present findings:
-- Path count and test count
+- Path count and test count generated
 - Each issue classified (BUG/SMELL/AMBIGUOUS/CLEAN)
 - For AMBIGUOUS: ask the operator what to do
 - For BUG: ask if they want it fixed now or just documented

@@ -35,14 +35,8 @@ fi
 
 # 2. Copy skills (each skill is a directory containing SKILL.md)
 mkdir -p "$PROJECT_DIR/.claude/skills"
-cp -r "$SCRIPT_DIR/skills/generate-test" "$PROJECT_DIR/.claude/skills/"
-cp -r "$SCRIPT_DIR/skills/run-tests" "$PROJECT_DIR/.claude/skills/"
-cp -r "$SCRIPT_DIR/skills/fix-test" "$PROJECT_DIR/.claude/skills/"
-cp -r "$SCRIPT_DIR/skills/refactor-testable" "$PROJECT_DIR/.claude/skills/"
-cp -r "$SCRIPT_DIR/skills/cover-functions" "$PROJECT_DIR/.claude/skills/"
-cp -r "$SCRIPT_DIR/skills/audit-coverage" "$PROJECT_DIR/.claude/skills/"
-cp -r "$SCRIPT_DIR/skills/analyze-function" "$PROJECT_DIR/.claude/skills/"
-echo "[+] Copied skills to .claude/skills/"
+cp -r "$SCRIPT_DIR/skills/"* "$PROJECT_DIR/.claude/skills/"
+echo "[+] Copied $(ls "$SCRIPT_DIR/skills/" | wc -l | tr -d ' ') skills to .claude/skills/"
 
 # 2b. Copy agent definitions for pi subagent extension (if user has pi)
 if [ -d "$PROJECT_DIR/.pi" ] || command -v pi &>/dev/null; then
@@ -67,7 +61,8 @@ else
 {
   "permissions": {
     "allow": [
-      "Bash(php $TINYTEST_DIR/tinytest.php*)"
+      "Bash(php $TINYTEST_DIR/tinytest.php*)",
+      "Bash(phpdbg*$TINYTEST_DIR/tinytest.php*)"
     ]
   }
 }
