@@ -46,7 +46,7 @@ This creates:
 Then use your agent to generate tests:
 
 ```shell
-claude -p '/generate-test src/Parser.php'
+claude -p '/test-generate src/Parser.php'
 ```
 
 ### Manual setup
@@ -565,25 +565,60 @@ You can override TinyTest's built-in formatting and test selection by defining t
 
 TinyTest ships with skills that AI coding agents can use to generate, analyze, and improve your test suite. Install them with the [setup script](#quick-start) or copy them manually from `agent-integration/skills/`.
 
+### Utilities
+
 | Skill | Command | Description |
 |-------|---------|-------------|
-| **generate-test** | `/generate-test <file>` | Generate a complete test file for a PHP source file |
-| **run-tests** | `/run-tests [file\|dir]` | Run tests and report structured results |
-| **fix-test** | `/fix-test <file>` | Diagnose and fix failing tests |
-| **file-coverage** | `/file-coverage` | Scan project for source files missing tests and generate them |
-| **cover-file** | `/cover-file <file>` | Achieve full function coverage for a single source file |
-| **test-line-coverage** | `/test-line-coverage <file>` | Achieve full statement and branch coverage by analyzing `lcov.info` |
-| **cover-functions** | `/cover-functions [dir]` | Run coverage, find untested functions, generate tests for them |
-| **analyze-function** | `/analyze-function <func>` | Deep analysis of a single function for test generation |
-| **refactor-testable** | `/refactor-testable <file>` | Refactor code into unit-testable chunks |
+| **test-run** | `/test-run [file\|dir] [-t test_name]` | Run tests and report results. Accepts a file, directory, or single test name. |
+| **test-fix** | `/test-fix <test_file> [test_name]` | Diagnose and fix a failing test. Reads error output, compares test vs source, repairs the test or explains the bug. |
+| **test-report** | `/test-report [tests-path]` | Read-only project coverage dashboard: per-file health, failing/incomplete tests, unresolved annotations. Requires phpdbg. |
 
-### Recommended workflow
+### Single File
+
+| Skill | Command | Description |
+|-------|---------|-------------|
+| **test-generate** | `/test-generate <source-file.php>` | Generate an initial TinyTest test file for a PHP source file. Creates mock stubs, runs the file, fixes failures, and registers it in `test_sources.md`. |
+| **test-improve** | `/test-improve <test_file.php>` | Review an existing test file for quality problems — weak assertions, missing messages, wrong parameter order, PHPUnit drift, and anti-patterns — then fix all approved issues. |
+| **test-cover-file** | `/test-cover-file <source-file.php>` | Achieve full coverage for one file in two phases: Phase 1 iterates until every function is called; Phase 2 iterates until every reachable statement and branch is exercised. Requires phpdbg. |
+
+### Single Function
+
+| Skill | Command | Description |
+|-------|---------|-------------|
+| **test-analyze** | `/test-analyze <file.php> <function_name>` | Deep-analyze a single function — trace all code paths, find callers, classify bugs and smells, and generate exhaustive tests. Useful before `/test-cover-file` when a function is complex. |
+| **test-regression** | `/test-regression <function_name> "<bug description>"` | Write a regression test for a known bug. Produces a named test that proves the bug exists (or is fixed) and will catch any future recurrence. |
+
+### Project-Wide
+
+| Skill | Command | Description |
+|-------|---------|-------------|
+| **test-bootstrap** | `/test-bootstrap [source-path] [tests-path]` | Scan all PHP source files, register any without a test file in `test_sources.md`, and generate initial test files for each. Run this first on a new greenfield project. |
+| **test-audit** | `/test-audit [tests-path]` | Full coverage audit — runs phpdbg across all tests, finds every uncovered function, analyzes each in context, generates tests, and produces a structured bug/smell report. Requires phpdbg. |
+
+### Refactoring & Adoption
+
+| Skill | Command | Description |
+|-------|---------|-------------|
+| **test-refactor** | `/test-refactor <path/to/file.php>` | Analyze a file for business logic entangled with side effects (DB, IO, HTTP, globals), extract it into pure unit-testable functions, rewire call sites, and generate tests. |
+| **test-migrate** | `/test-migrate <PHPUnit-test-file-or-directory>` | Migrate PHPUnit test files to TinyTest — structural conversion, full assertion remapping, exception annotations, data providers, setUp/tearDown, and PHPUnit mock objects. |
+
+### Recommended workflow — greenfield project
 
 ```
-1.  /file-coverage                     # generate initial test files for all source files
-2.  /cover-file src/Parser.php         # fill in function coverage for a file
-3.  /test-line-coverage src/Parser.php # achieve full statement/branch coverage
-4.  /fix-test tests/test_parser.php    # fix any remaining failures
+1.  /test-bootstrap                       # register all source files, generate initial test files
+2.  /test-cover-file src/Parser.php       # full coverage: functions, then lines and branches
+3.  /test-improve tests/test_parser.php   # strengthen assertions and fix anti-patterns
+4.  /test-fix tests/test_parser.php       # fix any remaining failures
+5.  /test-report                          # review overall project health
+```
+
+### Recommended workflow — migrating from PHPUnit
+
+```
+1.  /test-migrate tests/                  # convert existing PHPUnit test files to TinyTest
+2.  /test-improve tests/test_parser.php   # strengthen any weak assertions from the migration
+3.  /test-cover-file src/Parser.php       # fill coverage gaps the migration didn't cover
+4.  /test-audit                           # full project coverage audit and bug report
 ```
 
 > **Tip:** Install [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) and add it to your agent's allowed programs. It helps the agent find call sites and usage patterns to generate better tests.
@@ -608,7 +643,8 @@ cd /path/to/my-project
 {
   "permissions": {
     "allow": [
-      "Bash(php /path/to/tinytest/tinytest.php*)"
+      "Bash(php /path/to/tinytest/tinytest.php*)",
+      "Bash(phpdbg*/path/to/tinytest/tinytest.php*)"
     ]
   }
 }
