@@ -24,7 +24,7 @@ namespace TinyTest {
     // test if a file is a test file, this should match your test filename format
     // $options command line options
     // $filename is the file to test
-    function is_test_file(string $filename, array $options = null): bool
+    function is_test_file(string $filename, ?array $options = null): bool
     {
         return (starts_with($filename, "test_") && ends_with($filename, "php"));
     }
@@ -55,7 +55,7 @@ namespace TinyTest {
     }
 
     // display the test returned string output
-    function display_test_output(string $result = null, array $options)
+    function display_test_output(?string $result, array $options)
     {
         return ($result != null && not_quiet($options)) ?
             GREY . substr(str_replace("\n", "\n  -> ", "\n" . rtrim($result)), 1) . "\n" . NORML :
@@ -131,6 +131,11 @@ namespace TinyTest {
     function verbose(array $options): bool
     {
         return isset($options['v']);
+    }
+    // errors-only mode: hide passing/skipped/todo/incomplete/ambiguous output, show only failures
+    function errors_only(array $options): bool
+    {
+        return isset($options['x']) && $options['x'] === true;
     }
     function count_assertion()
     {
@@ -337,7 +342,7 @@ namespace TinyTest {
     function load_file(string $file, array $options): void
     {
         assert(is_file($file), "test file [$file] does not exist");
-        if (verbose($options) && !($options['j'] ?? false)) {
+        if (verbose($options) && !($options['j'] ?? false) && !errors_only($options)) {
             printf("loading test file: [%s%-45s%s]", CYAN, $file, NORML);
         }
         // collect @covers annotations before loading
@@ -354,7 +359,7 @@ namespace TinyTest {
             }
         }
         require_once "$file";
-        if (verbose($options) && !($options['j'] ?? false)) {
+        if (verbose($options) && !($options['j'] ?? false) && !errors_only($options)) {
             echo GREEN_BR . "  OK\n" . NORML;
         }
     }
@@ -439,6 +444,7 @@ namespace TinyTest {
         echo " -a " . GREY . "            auto load a bootstrap file in test directory\n" . NORML;
         echo " -c " . GREY . "            include code coverage information (generate lcov.info)\n" . NORML;
         echo " -q " . GREY . "            hide test console output (up to 3x -q -q -q)\n" . NORML;
+        echo " -x " . GREY . "            show only failing tests (hide passing/skip/todo/incomplete/ambiguous)\n" . NORML;
         echo " -m " . GREY . "            set monochrome console output\n" . NORML;
         echo " -v " . GREY . "            set verboise output (stack traces)\n" . NORML;
         echo " -s " . GREY . "            squelch php error reporting\n" . NORML;
@@ -833,7 +839,7 @@ namespace TinyTest {
     {
         public $test_data;
         //public function __construct(string $message, $actual, $expected, \Exception $ex = null) {
-        public function __construct(string $message, $actual, $expected, \Throwable $ex = null)
+        public function __construct(string $message, $actual, $expected, ?\Throwable $ex = null)
         {
             $str_actual = is_object($actual) ? get_class($actual) . '(...)' : (is_array($actual) ? 'Array(' . count($actual) . ')' : (string)$actual);
             $str_expected = is_object($expected) ? get_class($expected) . '(...)' : (is_array($expected) ? 'Array(' . count($expected) . ')' : (string)$expected);
@@ -896,6 +902,8 @@ namespace TinyTest {
         $options['n'] = isset($options['n']) ? true : false;
         $options['cost'] = isset($options['w']) ? 'wt' : 'cpu';
         $options['j'] = isset($options['j']) ? true : false;
+        // errors-only: suppress passing/skipped/todo/incomplete/ambiguous output
+        $options['x'] = isset($options['x']) ? true : false;
         // code coverage reporting
         $options[COVERAGE] = isset($options[COVERAGE]) ? true : false;
         $options[SHOW_COVERAGE] = isset($options[SHOW_COVERAGE]) ? true : false;
@@ -907,7 +915,7 @@ namespace TinyTest {
 
     /** MAIN ... */
     // process command line options
-    $options = parse_options(getopt("b:d:f:t:i:e:pmnqchrvsalkwj?"));
+    $options = parse_options(getopt("b:d:f:t:i:e:pmnqchrvsalkwjx?"));
     $options = init($options);
     $options['cmd'] = join(' ', $argv);
 
@@ -1169,10 +1177,15 @@ version: 1
             return;
         }
 
-        // display the test we are running
+        // display the test we are running. In errors-only mode (-x), buffer the header and
+        // flush it only if the test fails, so passing tests produce no output at all.
+        $test_header = "";
         if (!$options['j']) {
             $format_test_fn = (function_exists("\\user_format_test_run")) ? "\\user_format_test_run" : "\\TinyTest\\format_test_run";
-            echo $format_test_fn($function_name, $test_data, $options);
+            $test_header = $format_test_fn($function_name, $test_data, $options);
+            if (!errors_only($options)) {
+                echo $test_header;
+            }
         }
 
         // handle @skip and @todo annotations
@@ -1180,7 +1193,7 @@ version: 1
             $reason = isset($test_data['todo']) ? $test_data['todo'] : $test_data['skip'];
             $test_data['status'] = isset($test_data['todo']) ? 'TODO' : 'SKIP';
             $GLOBALS['assert_skip_count'] = ($GLOBALS['assert_skip_count'] ?? 0) + 1;
-            if (!$options['j']) {
+            if (!$options['j'] && !errors_only($options)) {
                 $label = $test_data['status'];
                 $out = CYAN . sprintf("%-4s", $label) . NORML;
                 if ($reason !== '') {
@@ -1188,7 +1201,7 @@ version: 1
                 }
                 echo $out;
             }
-            if ($options['j']) {
+            if ($options['j'] && !errors_only($options)) {
                 $json_entry = [
                     'name' => $function_name,
                     'file' => $test_data['file'],
@@ -1212,6 +1225,9 @@ version: 1
                     'file' => $test_data['file'],
                     'type' => $test_data['type'],
                 ];
+            } else if (errors_only($options)) {
+                // -x buffered the header; list mode has no pass/fail, so flush it here
+                echo $test_header;
             }
             return;
         }
@@ -1271,13 +1287,19 @@ version: 1
             if ($GLOBALS[ASSERT_CNT] === $pre_test_assert_count) {
                 count_assertion_fail();
                 $test_data['status'] = "IN";
+                $GLOBALS['assert_incomplete_count'] = ($GLOBALS['assert_incomplete_count'] ?? 0) + 1;
             }
-            if (!$options['j']) {
+            // in errors-only mode, OK and IN are both hidden (IN = incomplete, per user spec)
+            if (!$options['j'] && !errors_only($options)) {
                 $success_display_fn = (function_exists("\\user_format_test_success")) ? "\\user_format_test_success" : "\\TinyTest\\format_test_success";
                 echo $success_display_fn($test_data, $options, $duration);
             }
         } else {
             if (!$options['j']) {
+                // flush the buffered header first so the failure is attributable
+                if (errors_only($options)) {
+                    echo $test_header;
+                }
                 $error_display_fn = (function_exists("\\user_format_assertion_error")) ? "\\user_format_assertion_error" : "\\TinyTest\\format_assertion_error";
                 echo $error_display_fn($test_data, $options, $duration);
             }
@@ -1286,14 +1308,14 @@ version: 1
         // track @ambiguous tests (test still runs, just flagged)
         if (isset($test_data['ambiguous'])) {
             $GLOBALS['assert_ambiguous_count'] = ($GLOBALS['assert_ambiguous_count'] ?? 0) + 1;
-            if (!$options['j']) {
+            if (!$options['j'] && !errors_only($options)) {
                 $reason = $test_data['ambiguous'];
                 echo YELLOW . " AMBG" . NORML . ($reason !== '' ? GREY . " ($reason)" . NORML : '');
             }
         }
 
-        // collect JSON result
-        if ($options['j']) {
+        // collect JSON result (in errors-only mode, only include failing tests)
+        if ($options['j'] && (!errors_only($options) || !$passed)) {
             $json_entry = [
                 'name' => $function_name,
                 'file' => $test_data['file'],
@@ -1353,12 +1375,10 @@ version: 1
                 'total' => (int) $GLOBALS[ASSERT_CNT],
                 'passed' => (int) $GLOBALS['assert_pass_count'],
                 'failed' => (int) $GLOBALS['assert_fail_count'],
-                'incomplete' => count(array_filter($json_results, function ($r) {
-                    return ($r['status'] ?? '') === 'IN';
-                })),
-                'skipped' => count(array_filter($json_results, function ($r) {
-                    return in_array($r['status'] ?? '', ['SKIP', 'TODO']);
-                })),
+                // use global counters (not $json_results) so counts stay accurate
+                // when -x filters passing/skipped/todo/incomplete entries out of the array
+                'incomplete' => (int) ($GLOBALS['assert_incomplete_count'] ?? 0),
+                'skipped' => (int) ($GLOBALS['assert_skip_count'] ?? 0),
                 'ambiguous' => (int) ($GLOBALS['assert_ambiguous_count'] ?? 0),
                 'duration' => round($m1 - $GLOBALS['m0'], 6),
                 'memory_kb' => (int) (memory_get_peak_usage(true) / 1024),
