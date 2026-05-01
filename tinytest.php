@@ -353,8 +353,6 @@ namespace TinyTest {
                 $resolved = realpath($base_dir . DIRECTORY_SEPARATOR . $path) ?: realpath($path);
                 if ($resolved !== false) {
                     $GLOBALS['_tinytest_covers'][] = $resolved;
-                } elseif (!($options['j'] ?? false)) {
-                    echo YELLOW . "  warning: @covers path not found: $path (in $file)" . NORML . "\n";
                 }
             }
         }
