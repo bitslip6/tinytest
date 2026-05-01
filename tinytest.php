@@ -213,8 +213,14 @@ namespace TinyTest {
     }
     function is_contain($value): callable
     {
-        return function ($argument) use ($value) {
-            return (strstr($argument, $value) !== false);
+        $needles = is_array($value) ? array_values($value) : [$value];
+        return function ($argument) use ($needles) {
+            foreach ($needles as $needle) {
+                if ($needle !== null && $needle !== '' && strstr($argument, $needle) !== false) {
+                    return true;
+                }
+            }
+            return false;
         };
     }
     function starts_with(string $haystack, string $needle)
@@ -434,7 +440,7 @@ namespace TinyTest {
     {
         warn_ifnot(ini_get("zend.assertions") == 1, "zend.assertions are disabled. set zend.assertions in " . php_ini_loaded_file());
         echo " -d <directory> " . GREY . "load all tests in directory\n" . NORML;
-        echo " -f <file>      " . GREY . "load all tests in file\n" . NORML;
+        echo " -f <file>      " . GREY . "load all tests in file (supports multiple -f)\n" . NORML;
         echo " -t <test_name> " . GREY . "run just the test named test_name\n" . NORML;
         echo " -i <test_type> " . GREY . "only include tests of type <test_type> support multiple -i\n" . NORML;
         echo " -e <test_type> " . GREY . "exclude tests of type <test_type> support multiple -e\n" . NORML;
@@ -872,6 +878,13 @@ namespace TinyTest {
         if (isset($options['e'])) {
             $options['e'] = array_filter((array)$options['e'], 'is_string');
         }
+        // normalize -f to an array so multiple -f flags are supported
+        if (isset($options['f'])) {
+            $options['f'] = array_values(array_filter((array)$options['f'], 'is_string'));
+            if (count($options['f']) === 0) {
+                unset($options['f']);
+            }
+        }
 
         //print_r($options);
         /*
@@ -883,7 +896,7 @@ namespace TinyTest {
 
         // load / autodetect test bootstrap file
         if (isset($options['a'])) {
-            $d = isset($options['f']) ? dirname($options['f']) : $options['d'];
+            $d = isset($options['f']) ? dirname($options['f'][0]) : $options['d'];
             $options['b'] = file_exists("$d/bootstrap.php") ? "$d/bootstrap.php" : $options['b'] ?? '';
         }
         //print_r($options);
@@ -927,8 +940,10 @@ namespace TinyTest {
     // load the unit test files
     if (isset($options['d'])) {
         load_dir($options['d'], $options);
-    } else if ($options['f']) {
-        load_file($options['f'], $options);
+    } else if (!empty($options['f'])) {
+        foreach ($options['f'] as $f) {
+            load_file($f, $options);
+        }
     }
 
     // filter out test framework functions by diffing functions before and after loading test files
