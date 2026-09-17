@@ -17,14 +17,6 @@
 // fill in this function to write your own function to identify test function names
 // function user_is_test_function(string $funcname, array $options) : bool { }
 
-/**
- * add your user defined assertions here
- */
-function assert_array_contains($needle, array $haystack, string $message)
-{
-    if (!in_array($needle, $haystack)) {
-        TinyTest\count_assertion_fail();
-        throw new TinyTest\TestError("array does not contain [$needle], \"$message\"", join(', ', $haystack), $needle);
-    }
-    TinyTest\count_assertion_pass();
-}
+// Add project-specific assertions here. Use assert_base_condition() to count
+// exactly one assertion on success or failure. Bundled assertions, including
+// legacy assert_array_contains(), now live in assertions.php.
