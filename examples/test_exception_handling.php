@@ -1,5 +1,5 @@
 <?php declare(strict_types=1);
-mt_srand(time(true));
+mt_srand(time());
 
 class AnotherException extends Exception { }
 

@@ -605,7 +605,8 @@ function test_count_assertion_fail_increments_counters(): void
 {
     $before_total = $GLOBALS['assert_count'];
     $before_fail = $GLOBALS['assert_fail_count'];
-    \TinyTest\count_assertion_fail();
+    // A nested case owns its own sticky failure state; counters can be inspected separately.
+    $result = \TinyTest\do_test(function () { \TinyTest\count_assertion_fail(); }, [], null, null);
     $new_total = $GLOBALS['assert_count'];
     $new_fail = $GLOBALS['assert_fail_count'];
     // undo the fail count so it doesn't affect the test run (before assertions)
@@ -613,6 +614,7 @@ function test_count_assertion_fail_increments_counters(): void
     $GLOBALS['assert_count'] = $before_total;
     assert_eq($new_total, $before_total + 1, "total count incremented");
     assert_eq($new_fail, $before_fail + 1, "fail count incremented");
+    assert_false($result->pass, 'recording a failure fails that case');
 }
 
 // --- warn_ifnot ---
@@ -898,7 +900,7 @@ function test_testresult_set_error(): void
  */
 function test_read_annotations_helper(): void
 {
-    assert_true(true, "placeholder");
+    throw new RuntimeException('annotation fixture');
 }
 
 function test_read_test_annotations_parses_type(): void
@@ -1812,7 +1814,7 @@ function test_read_test_annotations_parses_ambiguous(): void
  */
 function test_annotation_phperror_helper(): void
 {
-    assert_true(true, "placeholder");
+    trigger_error('test warning', E_USER_WARNING);
 }
 
 function test_read_test_annotations_parses_phperror(): void
@@ -1870,15 +1872,16 @@ function test_parse_options_autodetect_bootstrap(): void
 {
     $dir = _tt_tempdir('tt_bootstrap');
     file_put_contents("$dir/bootstrap.php", "<?php\n// bootstrap\n");
-    $opts = \TinyTest\parse_options(['a' => false, 'd' => $dir]);
-    assert_eq($opts['b'], "$dir/bootstrap.php", "should autodetect bootstrap");
+    $opts = \TinyTest\validate_options(\TinyTest\parse_options(['a' => false, 'd' => $dir]));
+    assert_eq($opts['b'], "$dir/bootstrap.php", "validation should autodetect bootstrap");
 }
 
 function test_parse_options_autodetect_bootstrap_from_file(): void
 {
     $dir = _tt_tempdir('tt_bootstrap_f');
     file_put_contents("$dir/bootstrap.php", "<?php\n// bootstrap\n");
-    $opts = \TinyTest\parse_options(['a' => false, 'f' => "$dir/test_foo.php"]);
+    file_put_contents("$dir/test_foo.php", "<?php\n");
+    $opts = \TinyTest\validate_options(\TinyTest\parse_options(['a' => false, 'f' => "$dir/test_foo.php"]));
     assert_eq($opts['b'], "$dir/bootstrap.php", "should autodetect bootstrap from file dir");
 }
 
@@ -2406,7 +2409,7 @@ function test_do_test_multiple_expected_exceptions(): void
  */
 function test_annotation_multi_exception_helper(): void
 {
-    assert_true(true, "placeholder");
+    throw new InvalidArgumentException('annotation fixture');
 }
 
 function test_read_test_annotations_multiple_exceptions(): void
@@ -2438,9 +2441,6 @@ function test_is_excluded_include_overrides_exclude(): void
     assert_false(\TinyTest\is_excluded_test($test_data, $options), "include should take precedence");
 }
 
-// UNREACHABLE: Lines in main execution block (1100-1327) are inline code that runs when
-// tinytest.php is loaded as entry point — not callable as functions, cannot be unit tested.
-
-// UNTESTABLE: init() calls define() for constants that are already defined, would cause fatal error.
-// UNTESTABLE: Lines calling exit(0) in init() for usage help display.
-// UNTESTABLE: dbg() calls die() — cannot test without killing the test runner.
+// Process-level behavior (initialization, help, loading, reporting, exit codes)
+// is covered independently by cli_contracts.php and boundary_contracts.php.
+// Do not call init() twice in this process: console constants are defined once.

@@ -2,11 +2,11 @@
 
 ### PHP testing designed for agentic workflows
 
-A single-file, zero-dependency PHP test framework built for speed, simplicity, and AI-assisted development. Write tests as plain functions, run thousands in under a second, and let your coding agent generate, improve, and debug tests using built-in skills.
+A small, zero-required-library PHP test framework built for speed, simplicity, and AI-assisted development. Write tests as plain functions, run thousands in under a second, and let your coding agent generate, improve, and debug tests using built-in skills.
 
 ## Features
 
-* **Single file** — drop `tinytest.php` anywhere, no Composer required
+* **Small distribution** — copy the framework directory (`tinytest.php`, `assertions.php`, `user_defined.php`, and `src/`); no Composer required
 * **Fast** — run thousands of tests in under a second
 * **Agentic coding** — ships with skills for test generation, coverage analysis, and bug hunting
 * **Code coverage** — generates `lcov.info` for editor integration _(requires phpdbg)_
@@ -86,7 +86,7 @@ Tests are plain PHP functions in global namespace. No classes, no inheritance.
 
 - **File names** start with `test_` and end with `.php` (e.g., `test_parser.php`)
 - **Test functions** are prefixed with `test_`, `it_`, or `should_`
-- **A test with no assertions is marked incomplete** (`IN`) and counts as a failure
+- **A test case with no TinyTest assertions is marked incomplete** (`IN`) and causes exit code 1. A matched `@exception` counts as one successful check. Native PHP `assert()` calls are not counted; use TinyTest assertions instead.
 
 ```php
 <?php declare(strict_types=1);
@@ -130,6 +130,8 @@ function test_object_does_stuff(): void {
 
 ### Bootstrap files
 
+Paths and backend requirements are validated before project code runs. `-b` loads one explicit bootstrap; `-a` finds `bootstrap.php` beside the selected files/directory. Explicit `-b` takes precedence; `-a` across multiple directories requires an explicit bootstrap. Parsing and `--help` never execute a bootstrap or project overrides. Use either `-d` or repeatable `-f`, not both.
+
 For shared initialization (autoloaders, constants, database connections), create a bootstrap file:
 
 ```shell
@@ -143,7 +145,7 @@ tinytest -a -d tests/
 
 ## Assertions
 
-All assertions are plain global functions. Parameter order is always **actual before expected**, **haystack before needle**, **message last**.
+All assertions are plain global functions. Prefer **actual before expected**, **haystack before needle**, **message last**. The legacy `assert_array_contains` keeps its historical needle-first order; use `assert_array_has` for the consistent, strict API. A few assertions retain an optional debug-output argument after the message.
 
 Add custom assertions to `user_defined.php` — see [Custom Assertions](#custom-assertions) below.
 
@@ -154,7 +156,7 @@ Add custom assertions to `user_defined.php` — see [Custom Assertions](#custom-
 | `assert_eq($actual, $expected, "msg")` | Strict equality (`===`) |
 | `assert_neq($actual, $expected, "msg")` | Strict inequality (`!==`) |
 | `assert_eqic($actual, $expected, "msg")` | Case-insensitive string equality |
-| `assert_identical($actual, $expected, "msg")` | Type-aware deep equality (objects use property comparison) |
+| `assert_identical($actual, $expected, "msg")` | Strict equality for non-objects; structural comparison for objects |
 
 ### Comparison
 
@@ -182,14 +184,33 @@ Add custom assertions to `user_defined.php` — see [Custom Assertions](#custom-
 | `assert_count($actual, $expected, "msg")` | Count of countable equals expected |
 | `assert_empty($actual, "msg")` | Value is empty |
 | `assert_not_empty($actual, "msg")` | Value is not empty |
-| `assert_array_contains($needle, $haystack, "msg")` | Value exists in array _(defined in user_defined.php)_ |
+| `assert_array_has($haystack, $needle, "msg")` | Strict array membership (`in_array` with strict mode) |
+| `assert_array_contains($needle, $haystack, "msg")` | Legacy needle-first, loose array membership; retained for compatibility |
 
 ### Objects & Types
 
 | Assertion | Description |
 |-----------|-------------|
 | `assert_instanceof($actual, ClassName::class, "msg")` | Object is instance of class |
-| `assert_object($actual, $expected, "msg")` | Deep object property comparison |
+| `assert_object($actual, $expected, "msg")` | Strict structural object comparison |
+
+Object comparison requires the same class and all initialized stored properties (including private/protected properties) to match recursively with strict types. Extra properties fail; property insertion order is ignored. Nested arrays require matching keys, key order, and values. Object cycles are supported, but recursive arrays or comparisons deeper than 100 levels fail closed. Distinct internal PHP objects (except `stdClass`), including internal-class subclasses, are not compared structurally: compare extracted values instead. Identical object references always match. Uninitialized properties are absent from the stored-property comparison.
+
+`assert_true` rejects every PHP falsey value (`false`, `0`, `0.0`, `""`, `"0"`, `null`, `[]`). Both regex assertions fail on invalid patterns or regex execution errors; an invalid regex cannot satisfy `assert_not_matches`.
+
+### Intentionally testing assertion failures
+
+A failed TinyTest assertion **still fails its case if caught**. Later passing assertions or resetting reporting counters cannot clear that outcome. Use the explicit helper when testing assertions themselves:
+
+```php
+$error = assert_fails(
+    fn() => assert_eq(1, 2, "intentional failure"),
+    "assert_eq must reject different values"
+);
+assert_contains($error->getMessage(), "intentional failure", "failure explains why");
+```
+
+`assert_fails($callback, $message)` requires a thrown `TinyTest\TestError`, isolates only the callback's assertion state/counters, and counts one successful check. Other throwable types propagate; a callback that returns normally fails the helper. Unrelated earlier failures remain failures. Custom assertions should use `assert_base_condition`, or call `TinyTest\count_assertion_fail($error)` before throwing their `TestError`.
 
 ### Optional verbose output
 
@@ -206,7 +227,7 @@ Add annotations in the PHPDoc block above a test function.
 
 ### @exception — expected exceptions
 
-The test passes if the listed exception is thrown. Do **not** use try/catch — TinyTest handles it internally:
+The test passes if the listed exception (or a subclass) is thrown. A normal return fails, even if earlier assertions passed. A matched annotation counts as one successful assertion. Any `Throwable` type can be expected, including `Error` and `TypeError`, but TinyTest assertion errors, native `AssertionError`, and runner timeouts cannot satisfy an expectation. Do **not** use try/catch for expected exceptions — TinyTest handles them internally:
 
 ```php
 /**
@@ -261,6 +282,8 @@ function test_addition(array $data): void {
 }
 ```
 
+Each dataset must make an assertion or satisfy an exception expectation. A `null` dataset is passed as one argument, not mistaken for a no-argument test. Empty providers are incomplete; provider errors fail the test and cannot satisfy `@exception`. Results are still reported per test function: any failed dataset fails the function, otherwise any incomplete dataset makes it incomplete.
+
 ### @type — categorize tests
 
 Tag tests for selective inclusion/exclusion:
@@ -310,7 +333,7 @@ function test_edge_case(): void {
 
 ### @timeout — time limit
 
-Fail the test if it takes longer than the specified duration. Supports decimal values:
+Fail the test if it takes longer than the specified duration. Supports decimal values. Fractional timeouts are checked after execution and cannot stop a hung test. Timeouts of at least one second also use an alarm when pcntl is available; this is not subprocess isolation:
 
 ```php
 /**
@@ -324,7 +347,7 @@ function test_fast_response(): void {
 
 ### @phperror — expected PHP errors
 
-Expect a specific PHP error type (E_WARNING, E_NOTICE, etc.):
+Expect a specific PHP error type (E_WARNING, E_USER_WARNING, E_NOTICE, etc.). Each declared expectation must actually occur and counts as one successful check. Unexpected warnings/notices/deprecations fail the case independently of `log_errors` and `display_errors`; they are captured with severity/location rather than parsed from logs. TinyTest enables `E_ALL` by default; runtime PHP suppression (`@`, `error_reporting`, or `-s`) is honored, but a suppressed error cannot satisfy an expectation. Legacy `@phperror Warning:message substring` remains supported. Provider warnings fail the provider and cannot satisfy the test body's expectations.
 
 ```php
 /**
@@ -373,8 +396,12 @@ tinytest [options]
 | `-l` | List tests without running them |
 | `-v` | Verbose output (show stack traces on failure) |
 | `-q` | Quiet mode — suppress test output (up to `-q -q -q`) |
+| `-x` | Show only failures and incomplete tests; preserve full-suite summary |
 | `-m` | Monochrome console output (no ANSI colors) |
-| `-s` | Suppress PHP error reporting |
+| `-s` | Suppress PHP diagnostics (does not suppress assertions/exceptions or validation) |
+| `--allow-empty` | Allow no discovered/filtered tests; an unmatched `-t` still fails |
+| `--help` | Show help without loading project code (`-h` also works) |
+| `--json` | Alias for `-j` |
 | `-p` | Save xhprof profiling data (requires tideways/xhprof) |
 | `-k` | Save callgrind profiling data (for KCachegrind) |
 | `-n` | Skip profiling for low-overhead functions |
@@ -417,6 +444,25 @@ tinytest -d tests/ -e slow
 
 ## JSON Output
 
+Version 12 corrects summary semantics: `total`, `passed`, `failed`, `incomplete`, and `skipped` count **test functions**, not assertions or provider rows. During execution, `total = passed + failed + incomplete + skipped`; TODO is included in skipped. Ambiguous is an additional flag, not a pass/fail override. `-l` reports the number discovered with no execution outcomes.
+
+Assertion totals are separate under `summary.assertions`; matched exception/PHP-error expectations count as successful assertions. Execution failures (errors, timeouts, provider failures, missing exceptions, incomplete tests) do not invent assertion counts. Failed assertions are sticky per case, even if caught; use `assert_fails` for intentional assertion-failure checks.
+
+Exit codes:
+- **0:** success (or explicit help/list/allowed empty selection).
+- **1:** failed or incomplete tests.
+- **2:** invalid arguments/paths, unmatched selectors, loading, backend, cleanup, or worker errors.
+
+The root `exit_code` matches the process exit. Root `errors` contains structured runner errors (`kind`, `class`, `message`, `file`, `line`); test failures remain under `tests[].error`. Do not decide success from `summary.failed` alone: incomplete tests and runner errors also fail. Unknown flags, repeated scalar options, trailing arguments, missing files/directories/bootstrap files, and empty selections fail explicitly. `--allow-empty` opts out of empty discovery/filter results, but never an unmatched `-t`.
+
+### Clean JSON process boundary
+
+JSON mode uses one supervised PHP worker for the **entire suite** (not one process per test). Only the supervisor writes JSON to stdout. The worker's report travels over a separate descriptor; file/bootstrap/provider output, direct `fwrite(STDOUT, ...)`, stderr, cleanup, and shutdown output are captured rather than mixed into JSON. Case-buffered output is in `tests[].output`; other output is under root `output.stdout` / `output.stderr`. Root stream previews are limited to 64 KiB with `stdout_truncated` / `stderr_truncated` flags; reports larger than 16 MiB fail with a runner error. Invalid UTF-8 is replaced safely during JSON encoding.
+
+A worker that exits before reporting (including `exit(0)`), fatals, or fails during shutdown produces exit 2 and a valid error report. Cleanup callbacks run on handled loading/execution failures, but PHP cannot run ordinary `finally` blocks after an abrupt `exit()` or forced termination. This is transport/failure isolation, **not a security sandbox or a hard timeout**. Tests still share one worker's global state, and can intentionally replace PHP error handlers; TinyTest restores its handler afterward.
+
+This requires the built-in `proc_open` function and writable temporary storage, and adds one PHP startup per JSON invocation. Startup INI settings and loaded extensions are checked for consistency; configure extensions in php.ini rather than only `-d extension=...` if the worker cannot reproduce them. Console mode runs in-process and cannot contain an explicit `exit()` or fatal termination. Interpreter/startup output before TinyTest starts, killing the supervisor, and exhaustion of supervisor resources are outside the JSON guarantee. phpdbg/profiling worker compatibility still requires separate backend verification.
+
 Use `-j` for machine-readable output:
 
 ```shell
@@ -425,7 +471,7 @@ tinytest -j -f tests/test_parser.php
 
 ```json
 {
-  "version": 11,
+  "version": 12,
   "tests": [
     {
       "name": "test_parse_header",
@@ -439,6 +485,7 @@ tinytest -j -f tests/test_parser.php
       "file": "tests/test_parser.php",
       "status": "FAIL",
       "duration": 0.001,
+      "assertions": 1,
       "error": {
         "message": "expected [42] got [41] \"values differ\"",
         "file": "tests/test_parser.php",
@@ -453,9 +500,12 @@ tinytest -j -f tests/test_parser.php
     "incomplete": 0,
     "skipped": 0,
     "ambiguous": 0,
+    "assertions": {"total": 4, "passed": 3, "failed": 1},
     "duration": 0.002,
     "memory_kb": 2048
-  }
+  },
+  "errors": [],
+  "exit_code": 1
 }
 ```
 
@@ -537,12 +587,9 @@ Add project-specific assertions to `user_defined.php`. TinyTest loads its bundle
 // user_defined.php in your project root
 
 function assert_json_valid(string $json, string $message): void {
-    TinyTest\count_assertion();
     json_decode($json);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        throw new TinyTest\TestError($message, $json, "valid JSON");
-    }
-    TinyTest\count_assertion_pass();
+    $valid = json_last_error() === JSON_ERROR_NONE;
+    assert_base_condition(fn() => $valid, $json, "valid JSON", $message);
 }
 ```
 
@@ -663,10 +710,22 @@ cd /path/to/my-project
 
 ## Requirements
 
-- **PHP 7.0+** (PHP 8.x recommended)
+- **PHP 7.4+** syntax/runtime baseline (PHP 8.x recommended; current fixes verified on PHP CLI 8.5)
 - **phpdbg** — for code coverage _(optional, bundled with most PHP distributions)_
 - **tideways/xhprof** — for profiling _(optional)_
 
-## Todo
+## Verifying framework changes
 
-- Add multithreaded support for large test suites
+```shell
+php -d zend.assertions=1 tinytest.php -j -d tests/
+php tests/cli_contracts.php
+php tests/boundary_contracts.php
+```
+
+The independent subprocess harnesses check real exit codes, JSON outcomes, sticky assertion failures, exception/PHP-error expectations, providers, filtering, input validation, startup settings, and noisy/aborted worker processes. Deliberately failing fixtures live in `tests/fixtures/` (or temporary projects), outside the default shallow test scan. The unit suite includes an intentional stderr exercise; JSON captures it in `output.stderr`.
+
+Contributors: start with [AGENTS.md](AGENTS.md) for the call chain and task-to-file map. Boundary implementations are in `src/cli.php`, `src/options.php`, and `src/execution_state.php`; the remaining runner extraction is still planned.
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for the prioritized review and improvement plan: reliable results, a thin entry point, agent discoverability, and stable machine-readable contracts.

@@ -43,6 +43,9 @@ phpdbg -qrr -d xdebug.mode=off {{TINYTEST_PATH}}/tinytest.php -j -c -d tests/  #
 - Assertions: `assert_eq`, `assert_true`, `assert_false`, `assert_contains`, etc. — see `{{TINYTEST_PATH}}/assertions.php` for full list
 - Parameter order: actual before expected, haystack before needle, message last (some assertions accept optional debug output afterward)
 - Prefer `assert_array_has($haystack, $needle, "message")` for strict collection membership; legacy `assert_array_contains` is needle-first and loose
-- Every test case needs a TinyTest assertion or a matched `@exception`; otherwise it is incomplete ("IN") and exits nonzero. Native PHP `assert()` is not counted
+- Every test case needs a TinyTest assertion or matched `@exception`/`@phperror`; otherwise it is incomplete ("IN") and exits nonzero. Native PHP `assert()` is not counted
+- Caught failed assertions still fail the case. To intentionally test an assertion failure, use `assert_fails($callback, "message")`; never reset counters to clear failures
 - `@exception` accepts subclasses and `Throwable` types; normal return fails. Assertion errors and timeouts cannot satisfy it
 - JSON v12 summary counts test functions; assertion totals are under `summary.assertions`. `-x` retains failed and incomplete tests
+- Exit codes: 0 success, 1 failed/incomplete tests, 2 invocation/loading/worker errors. Root `errors` explains runner errors; do not check `summary.failed` alone
+- JSON uses a supervised worker (requires `proc_open`); project stdout/stderr are captured separately. Missing files, unknown flags, and unmatched selectors fail cleanly. Use `--allow-empty` only for intentional empty discovery, never to hide an unmatched `-t`

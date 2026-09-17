@@ -8,15 +8,14 @@ namespace TinyTest {
     use Throwable;
 
     const VER = "12";
-    define('TinyTest\ERR_OUT', tempnam(sys_get_temp_dir(), 'tinytest_'));
+    require_once __DIR__ . '/src/execution_state.php';
+    require_once __DIR__ . '/src/options.php';
+    require_once __DIR__ . '/src/cli.php';
     const COVERAGE = 'c';
     const TEST_FN = 't';
     const SHOW_COVERAGE = 'r';
     const ASSERT_CNT = 'assert_count';
     define('YEARAGO', time() - 86400 * 365);
-    if (function_exists('opcache_reset')) {
-        opcache_reset();
-    }
 
 
     /** BEGIN USER EDITABLE FUNCTIONS, override in user_defined.php and prefix with "user_" */
@@ -25,7 +24,7 @@ namespace TinyTest {
     // $filename is the file to test
     function is_test_file(string $filename, ?array $options = null): bool
     {
-        return (starts_with($filename, "test_") && ends_with($filename, "php"));
+        return (starts_with($filename, "test_") && ends_with($filename, ".php"));
     }
 
     // test if a function is a valid test function also limits testing to a single function
@@ -145,15 +144,20 @@ namespace TinyTest {
         count_assertion();
         $GLOBALS['assert_pass_count']++;
     }
-    function count_assertion_fail()
+    function count_assertion_fail(?\Throwable $error = null)
     {
         count_assertion();
         $GLOBALS['assert_fail_count']++;
+        $scope = $GLOBALS['_tinytest_assertion_scope'] ?? null;
+        if ($scope !== null) {
+            $scope->failures++;
+            $scope->error = $error ?? new TestError('failed assertion was recorded', false, true);
+        }
     }
     function panic_if(bool $result, string $msg)
     {
         if ($result) {
-            die($msg);
+            throw new \RuntimeException(strip_ansi($msg));
         }
     }
     function warn_ifnot(bool $result, string $msg)
@@ -308,18 +312,12 @@ namespace TinyTest {
             echo __FILE__ . CYAN . " Ver " . VER . NORML . "\n";
         }
 
-        // include test assertions
-        require __DIR__ . "/assertions.php";
-        include_once __DIR__ . "/user_defined.php";
-        $cwd_user = getcwd() . "/user_defined.php";
-        if (file_exists($cwd_user) && realpath($cwd_user) !== realpath(__DIR__ . "/user_defined.php")) {
-            include_once $cwd_user;
-        }
-
-        // usage help
-        if ((!isset($options['d']) && !isset($options['f'])) || isset($options['h']) || isset($options['?'])) {
-            show_usage();
-            exit(0);
+        // Declaration loading only; project code is loaded by run_suite after validation.
+        require_once __DIR__ . "/assertions.php";
+        if (!defined('TinyTest\\ERR_OUT')) {
+            $error_file = tempnam(sys_get_temp_dir(), 'tinytest_');
+            if ($error_file === false) { throw new \RuntimeException('cannot create error-log compatibility file'); }
+            define('TinyTest\\ERR_OUT', $error_file);
         }
         // set assertion state
         ini_set("assert.exception", "1");
@@ -327,18 +325,7 @@ namespace TinyTest {
         // squelch error reporting if requested
         error_reporting($options['s'] ? 0 : E_ALL);
         @unlink(ERR_OUT);
-        ini_set("error_log", ERR_OUT);
         gc_enable();
-
-        // trying to read error log fails in shutdown fails if we are monitoring code coverage...
-        if (!$options[COVERAGE]) {
-            register_shutdown_function("TinyTest\\fatals");
-        } else {
-            ini_set('memory_limit', '1024M');
-        }
-        register_shutdown_function(function () {
-            @unlink(ERR_OUT);
-        });
 
         return $options;
     }
@@ -346,7 +333,7 @@ namespace TinyTest {
     // load a single unit test
     function load_file(string $file, array $options): void
     {
-        assert(is_file($file), "test file [$file] does not exist");
+        $file = readable_file($file, 'test file');
         if (verbose($options) && !($options['j'] ?? false) && !errors_only($options)) {
             printf("loading test file: [%s%-45s%s]", CYAN, $file, NORML);
         }
@@ -372,12 +359,16 @@ namespace TinyTest {
     // load all unit tests in a directory
     function load_dir(string $dir, array $options)
     {
-        assert(is_dir($dir), "[$dir] is not a directory");
-        $action = function ($item) use ($dir, $options) {
-            load_file($dir . DIRECTORY_SEPARATOR . $item, $options);
-        };
-        $is_test_file_fn = (function_exists("\\user_is_test_file")) ? "\\user_is_test_file" : "\\TinyTest\\is_test_file";
-        do_for_all(scandir($dir), if_then_do($is_test_file_fn, $action, $options));
+        if (!is_dir($dir) || !is_readable($dir)) {
+            throw new \InvalidArgumentException("test directory is not readable: $dir");
+        }
+        $is_test_file_fn = function_exists('user_is_test_file') ? 'user_is_test_file' : 'TinyTest\\is_test_file';
+        foreach (scandir($dir) as $item) {
+            $path = $dir . DIRECTORY_SEPARATOR . $item;
+            if (is_file($path) && $is_test_file_fn($item, $options)) {
+                load_file($path, $options);
+            }
+        }
     }
 
     // scan a test file for @covers annotations before the first function/class definition
@@ -441,7 +432,8 @@ namespace TinyTest {
     // show the test runner usage
     function show_usage()
     {
-        warn_ifnot(ini_get("zend.assertions") == 1, "zend.assertions are disabled. set zend.assertions in " . php_ini_loaded_file());
+        echo " -h, --help     show help without loading project code\n";
+        echo " --allow-empty  allow an empty discovery result (not an unmatched -t selector)\n";
         echo " -d <directory> " . GREY . "load all tests in directory\n" . NORML;
         echo " -f <file>      " . GREY . "load all tests in file (supports multiple -f)\n" . NORML;
         echo " -t <test_name> " . GREY . "run just the test named test_name\n" . NORML;
@@ -453,7 +445,7 @@ namespace TinyTest {
         echo " -q " . GREY . "            hide test console output (up to 3x -q -q -q)\n" . NORML;
         echo " -x " . GREY . "            show failing and incomplete tests only\n" . NORML;
         echo " -m " . GREY . "            set monochrome console output\n" . NORML;
-        echo " -v " . GREY . "            set verboise output (stack traces)\n" . NORML;
+        echo " -v " . GREY . "            set verbose output (stack traces)\n" . NORML;
         echo " -s " . GREY . "            squelch php error reporting\n" . NORML;
         echo " -r " . GREY . "            display code coverage totals (assumes -c)\n" . NORML;
         echo " -p " . GREY . "            save xhprof profiling tideways or xhprof profilers\n" . NORML;
@@ -461,7 +453,7 @@ namespace TinyTest {
         echo " -n " . GREY . "            skip profile data for functions with low overhead\n" . NORML;
         echo " -w " . GREY . "            use wall time for callgrind output (default cpu)\n" . NORML;
         echo " -l " . GREY . "            just list tests, don't run\n" . NORML;
-        echo " -j " . GREY . "            output results as JSON\n" . NORML;
+        echo " -j " . GREY . "            output results as JSON (also --json; requires proc_open)\n" . NORML;
     }
 
 
@@ -897,16 +889,7 @@ namespace TinyTest {
     if (count($options['e']) <= 0) { unset($options['e']); }
 */
 
-        // load / autodetect test bootstrap file
-        if (isset($options['a'])) {
-            $d = isset($options['f']) ? dirname($options['f'][0]) : $options['d'];
-            $options['b'] = file_exists("$d/bootstrap.php") ? "$d/bootstrap.php" : $options['b'] ?? '';
-        }
-        //print_r($options);
-        //die();
-        if (isset($options['b']) && is_string($options['b']) && strlen($options['b']) > 1) {
-            require $options['b'];
-        }
+        // Bootstrap resolution/validation happens separately; parsing never runs project code.
 
         // php error squelching
         $options['s'] = isset($options['s']) ? true : false;
@@ -926,36 +909,6 @@ namespace TinyTest {
         }
         return $options;
     }
-
-    /** MAIN ... */
-    // process command line options
-    $options = parse_options(getopt("b:d:f:t:i:e:pmnqchrvsalkwjx?"));
-    $options = init($options);
-    $options['cmd'] = join(' ', $argv);
-
-    // get a list of all tinytest fucntion names
-    $funcs1 = get_defined_functions();
-    unset($funcs1['internal']);
-
-    // initialize @covers collection
-    $GLOBALS['_tinytest_covers'] = [];
-
-    // load the unit test files
-    if (isset($options['d'])) {
-        load_dir($options['d'], $options);
-    } else if (!empty($options['f'])) {
-        foreach ($options['f'] as $f) {
-            load_file($f, $options);
-        }
-    }
-
-    // filter out test framework functions by diffing functions before and after loading test files
-    $just_test_functions = array_filter(get_defined_functions()['user'], function ($fn_name) use ($funcs1) {
-        return !in_array($fn_name, $funcs1['user']);
-    });
-
-    // display functions with userspace override
-    $is_test_fn = (function_exists("\\user_is_test_function")) ? "\\user_is_test_function" : "\\TinyTest\\is_test_function";
 
     class TestResult
     {
@@ -988,17 +941,24 @@ namespace TinyTest {
     // Runner failures must never satisfy an application's @exception annotation.
     class TimeoutError extends \RuntimeException {}
 
-    function do_test(callable $test_function, array $exceptions, ?string $dataset_name, $value, float $timeout = 0): TestResult
+    function do_test(callable $test_function, array $exceptions, ?string $dataset_name, $value, float $timeout = 0, array $expected_php_errors = []): TestResult
     {
         $result = new TestResult();
         $result->dataset = $dataset_name;
         $assertions_before = $GLOBALS[ASSERT_CNT];
+        $previous_scope = $GLOBALS['_tinytest_assertion_scope'] ?? null;
+        $scope = new AssertionScope();
+        $GLOBALS['_tinytest_assertion_scope'] = $scope;
+        $php_errors = new PhpErrors();
+        $php_handler = [$php_errors, 'handle'];
+        $previous_handler = set_error_handler($php_handler);
+        $previous_reporting = error_reporting();
         $buffer_level = ob_get_level();
         $has_pcntl = $timeout >= 1 && function_exists('pcntl_alarm');
         $t_start = microtime(true);
         if ($has_pcntl) {
             $previous_async = pcntl_async_signals(true);
-            $previous_handler = pcntl_signal_get_handler(SIGALRM);
+            $previous_signal_handler = pcntl_signal_get_handler(SIGALRM);
             $previous_alarm = pcntl_alarm(0);
             pcntl_signal(SIGALRM, function () use ($timeout) {
                 throw new TimeoutError("test timed out after {$timeout}s");
@@ -1037,6 +997,7 @@ namespace TinyTest {
                 $result->set_error($err);
             }
         } finally {
+            try {
             // Result conversion is a runner operation, not an expected exception.
             if ($result->pass && isset($output)) {
                 try {
@@ -1055,14 +1016,22 @@ namespace TinyTest {
                 }
             }
             $result->set_console($console);
+            $php_error = $php_errors->finish($expected_php_errors);
+            if ($php_error !== null && $result->pass) { $result->set_error($php_error); }
+            if ($scope->failures > 0) { $result->set_error($scope->error); }
             $result->assertions = $GLOBALS[ASSERT_CNT] - $assertions_before;
+            } finally {
+            $GLOBALS['_tinytest_assertion_scope'] = $previous_scope;
+            restore_handler($php_handler, $previous_handler);
+            error_reporting($previous_reporting);
             if ($has_pcntl) {
                 pcntl_alarm(0);
-                pcntl_signal(SIGALRM, $previous_handler);
+                pcntl_signal(SIGALRM, $previous_signal_handler);
                 pcntl_async_signals($previous_async);
                 if ($previous_alarm > 0) {
                     pcntl_alarm(max(1, $previous_alarm - (int) (microtime(true) - $t_start)));
                 }
+            }
             }
         }
         // Fractional deadlines are post-run checks, not interrupting time limits.
@@ -1077,6 +1046,14 @@ namespace TinyTest {
     {
         $timeout = isset($test_data['timeout']) ? (float) $test_data['timeout'] : 0;
         $results = [];
+        $assertions_before = $GLOBALS[ASSERT_CNT];
+        $previous_scope = $GLOBALS['_tinytest_assertion_scope'] ?? null;
+        $provider_scope = new AssertionScope();
+        $GLOBALS['_tinytest_assertion_scope'] = $provider_scope;
+        $provider_errors = new PhpErrors();
+        $provider_handler = [$provider_errors, 'handle'];
+        $previous_handler = set_error_handler($provider_handler);
+        $previous_reporting = error_reporting();
         try {
             if (isset($test_data['dataprovider'])) {
                 $datasets = call_user_func($test_data['dataprovider']);
@@ -1084,14 +1061,24 @@ namespace TinyTest {
                     throw new \UnexpectedValueException('data provider must return an iterable');
                 }
                 foreach ($datasets as $dataset_name => $value) {
-                    $results[] = do_test($test_function, $test_data['exception'], strval($dataset_name), $value, $timeout);
+                    $results[] = do_test($test_function, $test_data['exception'], strval($dataset_name), $value, $timeout, $test_data['phperror'] ?? []);
                 }
             } else {
-                $results[] = do_test($test_function, $test_data['exception'], null, null, $timeout);
+                $results[] = do_test($test_function, $test_data['exception'], null, null, $timeout, $test_data['phperror'] ?? []);
             }
         } catch (Throwable $ex) {
             $result = new TestResult();
             $result->set_error($ex);
+            $results[] = $result;
+        } finally {
+            $GLOBALS['_tinytest_assertion_scope'] = $previous_scope;
+            restore_handler($provider_handler, $previous_handler);
+            error_reporting($previous_reporting);
+        }
+        $provider_error = $provider_scope->error ?? $provider_errors->finish();
+        if ($provider_error !== null) {
+            $result = new TestResult();
+            $result->set_error($provider_error);
             $results[] = $result;
         }
         if ($results === []) {
@@ -1106,10 +1093,14 @@ namespace TinyTest {
                 $result->set_error(new TestError('test case made no assertions', 0, 'at least one assertion'));
             }
         }
+        // Provider checks are reported, but cannot make an assertion-free case complete.
+        $case_assertions = array_sum(array_map(fn($result) => $result->assertions, $results));
+        $results[0]->assertions += $GLOBALS[ASSERT_CNT] - $assertions_before - $case_assertions;
         return $results;
     }
 
 
+    // Legacy helper retained for callers/tests; execution uses scoped PhpErrors.
     // TODO: simplify, maybe add an error handler and skip the error file...
     function get_error_log(array $errorconfig, array $options): ?\Error
     {
@@ -1235,23 +1226,49 @@ version: 1
         return;
     }
 
-    // a bit ugly
-    // loop over all user included functions
+    function run_suite(array $options): array
+    {
+    $GLOBALS['_tinytest_covers'] = [];
+    $loading_scope = new AssertionScope();
+    $GLOBALS['_tinytest_assertion_scope'] = $loading_scope;
+    $loading_errors = new PhpErrors();
+    $loading_handler = [$loading_errors, 'handle'];
+    $previous_handler = set_error_handler($loading_handler);
+    try {
+        include_once __DIR__ . '/user_defined.php';
+        $project_overrides = getcwd() . '/user_defined.php';
+        if (is_file($project_overrides)) { include_once $project_overrides; }
+        if (isset($options['b'])) { require $options['b']; }
+        $before = get_defined_functions()['user'];
+        if (isset($options['d'])) { load_dir($options['d'], $options); }
+        else { foreach ($options['f'] as $file) { load_file($file, $options); } }
+        if ($loading_scope->failures > 0) { throw $loading_scope->error; }
+        $loading_error = $loading_errors->finish();
+        if ($loading_error !== null) { throw $loading_error; }
+    } finally {
+        $GLOBALS['_tinytest_assertion_scope'] = null;
+        restore_handler($loading_handler, $previous_handler);
+    }
+    // Preserve the before/after user-function difference; system functions never enter discovery.
+    $just_test_functions = array_diff(get_defined_functions()['user'], $before);
+    $is_test_fn = function_exists('user_is_test_function') ? 'user_is_test_function' : 'TinyTest\\is_test_function';
+    $selected = [];
+    foreach ($just_test_functions as $function) {
+        if (isset($options['t']) && $function !== $options['t']) { continue; }
+        if ($is_test_fn($function, $options) && !is_excluded_test(read_test_annotations($function), $options)) {
+            $selected[] = $function;
+        }
+    }
+    if ($selected === [] && (isset($options['t']) || !isset($options['allow-empty']))) {
+        throw new \InvalidArgumentException(isset($options['t']) ? 'no test matched selector: ' . $options['t'] : 'no tests matched the selected files and filters (use --allow-empty to opt out)');
+    }
+    $GLOBALS[ASSERT_CNT] = $GLOBALS['assert_pass_count'] = $GLOBALS['assert_fail_count'] = 0;
     $coverage = array();
     $json_results = array();
     // Test outcomes are independent of mutable assertion counters and output filters.
     $summary = ['total' => 0, 'passed' => 0, 'failed' => 0, 'incomplete' => 0, 'skipped' => 0, 'ambiguous' => 0];
-    do_for_all($just_test_functions, function ($function_name) use (&$coverage, &$json_results, &$summary, $options, $is_test_fn) {
-
-        // exclude functions that don't match test name signature
-        if (!$is_test_fn($function_name, $options)) {
-            return;
-        }
-        // read the test annotations, exclude test based on types
+    do_for_all($selected, function ($function_name) use (&$coverage, &$json_results, &$summary, $options) {
         $test_data = read_test_annotations($function_name);
-        if (is_excluded_test($test_data, $options)) {
-            return;
-        }
         $summary['total']++;
 
         // display the test we are running. In errors-only mode (-x), buffer the header and
@@ -1349,10 +1366,9 @@ version: 1
         }
 
 
-        // Always drain the log, including after exceptions, so errors cannot leak.
-        $log_error = get_error_log($test_data['phperror'], $options);
-        $test_data['error'] = $log_error;
-        $has_failure = $log_error !== null;
+        // PHP diagnostics are captured per case, not inferred from error-log text.
+        $test_data['error'] = null;
+        $has_failure = false;
         foreach ($results as $result) {
             if (!$result->pass) {
                 if (!$result->incomplete || $test_data['error'] === null) {
@@ -1361,7 +1377,6 @@ version: 1
                 $has_failure = $has_failure || !$result->incomplete;
             }
         }
-        $passed = $passed && $log_error === null;
         $test_data['status'] = $passed ? 'OK' : ($has_failure ? 'FAIL' : 'IN');
         $summary[$passed ? 'passed' : ($has_failure ? 'failed' : 'incomplete')]++;
 
@@ -1401,6 +1416,7 @@ version: 1
                 'status' => $test_data['status'],
                 'duration' => round($duration, 6),
                 'assertions' => $assertion_count,
+                'output' => $console,
             ];
             if (isset($test_data['ambiguous'])) {
                 $json_entry['ambiguous'] = true;
@@ -1411,10 +1427,12 @@ version: 1
             if (!$passed && $test_data['error'] !== null) {
                 $ex = $test_data['error'];
                 $json_entry['error'] = [
+                    'class' => get_class($ex),
                     'message' => strip_ansi($ex->getMessage()),
                     'file' => $ex->getFile(),
                     'line' => $ex->getLine(),
                 ];
+                if ($ex instanceof \ErrorException) { $json_entry['error']['severity'] = $ex->getSeverity(); }
             }
             $json_results[] = $json_entry;
         }
@@ -1429,7 +1447,9 @@ version: 1
             echo "\ngenerating lcov.info...\n";
         }
         $covers_list = array_unique($GLOBALS['_tinytest_covers']);
-        $cov_result = coverage_to_lcov($coverage, $options, $covers_list);
+        $coverage_options = $options;
+        if ($options['j']) { $coverage_options[SHOW_COVERAGE] = false; }
+        $cov_result = coverage_to_lcov($coverage, $coverage_options, $covers_list);
         file_put_contents("lcov.info", $cov_result['lcov']);
         $uncovered_functions = $cov_result['uncovered'];
         $coverage_data = $cov_result['coverage'];
@@ -1445,8 +1465,7 @@ version: 1
     @unlink(ERR_OUT);
     $m1 = microtime(true);
 
-    if ($options['j']) {
-        // JSON output mode
+    // Build a report for both modes; only the CLI boundary serializes JSON.
         $output = [
             'version' => (int) VER,
             'tests' => $json_results,
@@ -1463,8 +1482,7 @@ version: 1
         if ($options[COVERAGE] && !empty($coverage_data)) {
             $output['coverage'] = $coverage_data;
         }
-        echo json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-    } else {
+    if (!$options['j']) {
         // display the test results
         $skip_count = $summary['skipped'];
         $skip_str = $skip_count > 0 ? ", $skip_count skipped" : "";
@@ -1482,10 +1500,10 @@ version: 1
         echo "\n" . NORML . $summary['total'] . " tests, " . $summary['passed'] . " passed, " . $summary['failed'] . " failures/exceptions, " . $summary['incomplete'] . " incomplete" . $skip_str . $ambig_str . $cov_str . $uncov_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
     }
 
-    // run any registered cleanup callbacks (shutdown handlers don't fire under phpdbg)
-    foreach ($GLOBALS['_tinytest_cleanup'] ?? [] as $cb) {
-        $cb();
+    $output['errors'] = [];
+    $output['exit_code'] = $summary['failed'] > 0 || $summary['incomplete'] > 0 ? 1 : 0;
+    return $output;
     }
 
-    exit($summary['failed'] > 0 || $summary['incomplete'] > 0 ? 1 : 0);
+    exit(run_cli($argv));
 }

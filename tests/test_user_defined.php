@@ -1,24 +1,11 @@
 <?php declare(strict_types=1);
 /**
- * @covers ../user_defined.php
+ * Legacy collection API compatibility tests; implementation moved to assertions.php.
+ * @covers ../assertions.php
  */
 
-/**
- * Helper: verifies that a callable throws TinyTest\TestError.
- * Saves and restores assertion counters so expected failures don't inflate counts.
- */
 function _ud_expect_test_error(callable $fn, string $label): void {
-    $threw = false;
-    $saved_fail = $GLOBALS['assert_fail_count'];
-    $saved_total = $GLOBALS['assert_count'];
-    try {
-        $fn();
-    } catch (TinyTest\TestError $e) {
-        $threw = true;
-    }
-    $GLOBALS['assert_fail_count'] = $saved_fail;
-    $GLOBALS['assert_count'] = $saved_total;
-    assert_true($threw, "$label should throw TestError");
+    assert_fails($fn, "$label should throw TestError");
 }
 
 // === assert_array_contains ===

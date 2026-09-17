@@ -3,24 +3,9 @@
  * @covers ../assertions.php
  */
 
-/**
- * Helper: verifies that a callable throws TinyTest\TestError.
- * Saves and restores the assertion fail counter so that the expected failure
- * inside the callable doesn't inflate the global fail count.
- */
+// Intentionally failed assertions must use the explicit isolated helper.
 function expect_test_error(callable $fn, string $label): void {
-    $threw = false;
-    $saved_fail = $GLOBALS['assert_fail_count'];
-    $saved_total = $GLOBALS['assert_count'];
-    try {
-        $fn();
-    } catch (TinyTest\TestError $e) {
-        $threw = true;
-    }
-    // restore counters — the assertion inside fn() was *supposed* to fail
-    $GLOBALS['assert_fail_count'] = $saved_fail;
-    $GLOBALS['assert_count'] = $saved_total;
-    assert_true($threw, "$label should throw TestError");
+    assert_fails($fn, "$label should throw TestError");
 }
 
 // === assert_true ===
@@ -35,12 +20,16 @@ function test_assert_true_fails_on_false(): void {
     expect_test_error(fn() => assert_true(false, "should fail"), "assert_true(false)");
 }
 
-function test_assert_true_zero_does_not_throw(): void {
-    // assert_true(0) does NOT throw because assert_base_condition uses === false check,
-    // and the lambda returns 0 (not false). This is known behavior: assert_true only
-    // rejects exactly `false`, not other falsy values like 0, "", null.
-    // We verify the actual behavior here rather than the ideal behavior.
-    assert_true(0 !== false, "0 is not identical to false, so assert_true passes it");
+function test_assert_true_rejects_every_falsey_value(): void {
+    foreach ([false, 0, 0.0, '', '0', null, []] as $value) {
+        expect_test_error(fn() => assert_true($value, 'falsey value'), 'assert_true falsey input');
+    }
+}
+
+function test_assert_base_condition_rejects_falsey_predicates(): void {
+    foreach ([false, 0, 0.0, '', '0', null, []] as $value) {
+        expect_test_error(fn() => assert_base_condition(fn() => $value, 1, 1, 'falsey predicate'), 'falsey predicate');
+    }
 }
 
 // === assert_false ===
@@ -173,6 +162,14 @@ function test_assert_icontains_fails_on_missing(): void {
 
 function test_assert_icontains_fails_on_null(): void {
     expect_test_error(fn() => assert_icontains(null, "test", "null haystack"), "assert_icontains null");
+    expect_test_error(fn() => assert_icontains('test', null, 'null needle'), 'assert_icontains null needle');
+}
+
+function test_contains_assertions_distinguish_empty_strings_from_null(): void {
+    assert_contains('', '', 'empty string contains empty needle');
+    assert_icontains('', '', 'case-insensitive empty string contains empty needle');
+    assert_icontains('0', '0', 'zero is a valid haystack');
+    expect_test_error(fn() => assert_not_contains('', '', 'empty needle is present'), 'assert_not_contains empty strings');
 }
 
 // === assert_instanceof ===
@@ -265,6 +262,13 @@ function test_assert_not_matches_passes(): void {
 
 function test_assert_not_matches_fails(): void {
     expect_test_error(fn() => assert_not_matches("hello123", '/\d+/', "has digits"), "assert_not_matches fail");
+}
+
+function test_regex_assertions_reject_invalid_patterns(): void {
+    foreach (['assert_matches', 'assert_not_matches'] as $assertion) {
+        expect_test_error(fn() => $assertion('text', '/[/', 'invalid pattern'), $assertion);
+        expect_test_error(fn() => $assertion("\xff", '/./u', 'invalid UTF-8'), $assertion);
+    }
 }
 
 // === assert_count ===

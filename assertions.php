@@ -3,11 +3,31 @@ namespace {
 
     function assert_base_condition(callable $test_fn, $actual, $expected, string $message, string $output = "") {
         if (!(bool) $test_fn($actual, $expected)) {
-        	TinyTest\count_assertion_fail();
-			if ($output !== "") { echo $output; }
-            throw new TinyTest\TestError($message, $actual, $expected);
+            $error = new TinyTest\TestError($message, $actual, $expected);
+            TinyTest\count_assertion_fail($error);
+            if ($output !== "") { echo $output; }
+            throw $error;
         }
         TinyTest\count_assertion_pass();
+    }
+
+    // Explicitly test an assertion failure without clearing unrelated case failures.
+    // The callback's counters/scope are isolated; this helper counts one assertion.
+    function assert_fails(callable $callback, string $message): TinyTest\TestError {
+        $scope = $GLOBALS['_tinytest_assertion_scope'] ?? null;
+        $counts = [$GLOBALS['assert_count'], $GLOBALS['assert_pass_count'], $GLOBALS['assert_fail_count']];
+        $GLOBALS['_tinytest_assertion_scope'] = new TinyTest\AssertionScope();
+        $caught = null;
+        try {
+            $callback();
+        } catch (TinyTest\TestError $error) {
+            $caught = $error;
+        } finally {
+            $GLOBALS['_tinytest_assertion_scope'] = $scope;
+            [$GLOBALS['assert_count'], $GLOBALS['assert_pass_count'], $GLOBALS['assert_fail_count']] = $counts;
+        }
+        assert_base_condition(fn() => $caught !== null, $caught, TinyTest\TestError::class, $message);
+        return $caught;
     }
 
     function assert_true($condition, string $message, string $output = "") {
