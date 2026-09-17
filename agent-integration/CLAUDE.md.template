@@ -41,5 +41,8 @@ phpdbg -qrr -d xdebug.mode=off {{TINYTEST_PATH}}/tinytest.php -j -c -d tests/  #
 
 - Test files: `test_*.php`, test functions: `test_*`/`it_*`/`should_*`, all in global namespace
 - Assertions: `assert_eq`, `assert_true`, `assert_false`, `assert_contains`, etc. — see `{{TINYTEST_PATH}}/assertions.php` for full list
-- Parameter order: actual before expected, haystack before needle, message always last
-- A test with no assertions is marked incomplete ("IN") and counts as a failure
+- Parameter order: actual before expected, haystack before needle, message last (some assertions accept optional debug output afterward)
+- Prefer `assert_array_has($haystack, $needle, "message")` for strict collection membership; legacy `assert_array_contains` is needle-first and loose
+- Every test case needs a TinyTest assertion or a matched `@exception`; otherwise it is incomplete ("IN") and exits nonzero. Native PHP `assert()` is not counted
+- `@exception` accepts subclasses and `Throwable` types; normal return fails. Assertion errors and timeouts cannot satisfy it
+- JSON v12 summary counts test functions; assertion totals are under `summary.assertions`. `-x` retains failed and incomplete tests
