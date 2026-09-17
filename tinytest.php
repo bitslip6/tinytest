@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace TinyTest {
     // #!phpdbg -r -e
 
-    use Error;
     use Throwable;
 
-    const VER = "11";
+    const VER = "12";
     define('TinyTest\ERR_OUT', tempnam(sys_get_temp_dir(), 'tinytest_'));
     const COVERAGE = 'c';
     const TEST_FN = 't';
@@ -132,7 +131,7 @@ namespace TinyTest {
     {
         return isset($options['v']);
     }
-    // errors-only mode: hide passing/skipped/todo/incomplete/ambiguous output, show only failures
+    // Errors-only mode includes incomplete tests because they cause a failing exit.
     function errors_only(array $options): bool
     {
         return isset($options['x']) && $options['x'] === true;
@@ -359,6 +358,8 @@ namespace TinyTest {
                 $resolved = realpath($base_dir . DIRECTORY_SEPARATOR . $path) ?: realpath($path);
                 if ($resolved !== false) {
                     $GLOBALS['_tinytest_covers'][] = $resolved;
+                } else if (!($options['j'] ?? false)) {
+                    warn_ifnot(false, "warning: @covers path not found: $path");
                 }
             }
         }
@@ -382,7 +383,7 @@ namespace TinyTest {
     // scan a test file for @covers annotations before the first function/class definition
     function read_file_covers(string $file): array
     {
-        $contents = file_get_contents($file);
+        $contents = @file_get_contents($file);
         if ($contents === false) {
             return [];
         }
@@ -418,10 +419,12 @@ namespace TinyTest {
 
         $docs = explode("\n", $doc);
         array_walk($docs, function ($line) use (&$result) {
-            $last = last_element(explode(" ", $line));
             if (preg_match("/\@(\w+)(.*)/", $line, $matches)) {
+                // Accept both single-line and multiline PHPDoc annotations.
+                $matches[2] = preg_replace('/\*\/\s*$/', '', $matches[2]);
+                $last = preg_split('/\s+/', trim($matches[2]))[0];
                 if ($matches[1] === "exception") {
-                    array_push($result['exception'], $last);
+                    $result['exception'][] = $last;
                 } else if ($matches[1] === "phperror") {
                     array_push($result['phperror'], $matches[2]);
                 } else if ($matches[1] === "skip" || $matches[1] === "todo" || $matches[1] === "ambiguous") {
@@ -448,7 +451,7 @@ namespace TinyTest {
         echo " -a " . GREY . "            auto load a bootstrap file in test directory\n" . NORML;
         echo " -c " . GREY . "            include code coverage information (generate lcov.info)\n" . NORML;
         echo " -q " . GREY . "            hide test console output (up to 3x -q -q -q)\n" . NORML;
-        echo " -x " . GREY . "            show only failing tests (hide passing/skip/todo/incomplete/ambiguous)\n" . NORML;
+        echo " -x " . GREY . "            show failing and incomplete tests only\n" . NORML;
         echo " -m " . GREY . "            set monochrome console output\n" . NORML;
         echo " -v " . GREY . "            set verboise output (stack traces)\n" . NORML;
         echo " -s " . GREY . "            squelch php error reporting\n" . NORML;
@@ -632,7 +635,7 @@ namespace TinyTest {
     // take a mapping of file => array(tokens) and create a source mapping for function, branch, statement
     function make_source_map_from_tokens(array $tokens)
     {
-        $funcs = get_defined_functions(false);
+        $funcs = get_defined_functions();
         $lcov = array();
         // token types that introduce a named block whose name should NOT be treated as a function
         $skip_name_tokens = array('T_NAMESPACE', 'T_CLASS', 'T_INTERFACE', 'T_TRAIT');
@@ -913,7 +916,7 @@ namespace TinyTest {
         $options['n'] = isset($options['n']) ? true : false;
         $options['cost'] = isset($options['w']) ? 'wt' : 'cpu';
         $options['j'] = isset($options['j']) ? true : false;
-        // errors-only: suppress passing/skipped/todo/incomplete/ambiguous output
+        // Errors-only includes all exit-causing outcomes, including incomplete.
         $options['x'] = isset($options['x']) ? true : false;
         // code coverage reporting
         $options[COVERAGE] = isset($options[COVERAGE]) ? true : false;
@@ -931,7 +934,7 @@ namespace TinyTest {
     $options['cmd'] = join(' ', $argv);
 
     // get a list of all tinytest fucntion names
-    $funcs1 = get_defined_functions(true);
+    $funcs1 = get_defined_functions();
     unset($funcs1['internal']);
 
     // initialize @covers collection
@@ -947,7 +950,7 @@ namespace TinyTest {
     }
 
     // filter out test framework functions by diffing functions before and after loading test files
-    $just_test_functions = array_filter(get_defined_functions(true)['user'], function ($fn_name) use ($funcs1) {
+    $just_test_functions = array_filter(get_defined_functions()['user'], function ($fn_name) use ($funcs1) {
         return !in_array($fn_name, $funcs1['user']);
     });
 
@@ -960,8 +963,12 @@ namespace TinyTest {
         public $pass = false;
         public $result = "";
         public $console = "";
+        public $assertions = 0;
+        public $incomplete = false;
+        public $dataset = null;
         public function set_error(\Throwable $error)
         {
+            $this->pass = false;
             $this->error = $error;
         }
         public function set_result(?string $output)
@@ -978,73 +985,127 @@ namespace TinyTest {
         }
     }
 
+    // Runner failures must never satisfy an application's @exception annotation.
+    class TimeoutError extends \RuntimeException {}
+
     function do_test(callable $test_function, array $exceptions, ?string $dataset_name, $value, float $timeout = 0): TestResult
     {
         $result = new TestResult();
-        // set up alarm-based timeout if pcntl is available (integer seconds only, for hard kill)
+        $result->dataset = $dataset_name;
+        $assertions_before = $GLOBALS[ASSERT_CNT];
+        $buffer_level = ob_get_level();
         $has_pcntl = $timeout >= 1 && function_exists('pcntl_alarm');
+        $t_start = microtime(true);
         if ($has_pcntl) {
-            pcntl_async_signals(true);
+            $previous_async = pcntl_async_signals(true);
+            $previous_handler = pcntl_signal_get_handler(SIGALRM);
+            $previous_alarm = pcntl_alarm(0);
             pcntl_signal(SIGALRM, function () use ($timeout) {
-                throw new \RuntimeException("test timed out after {$timeout}s");
+                throw new TimeoutError("test timed out after {$timeout}s");
             });
             pcntl_alarm((int) ceil($timeout));
         }
-        $t_start = $timeout > 0 ? microtime(true) : 0;
+        ob_start();
         try {
-            ob_start();
-            if ($value !== null) {
-                $result->set_result(strval($test_function($value)));
-            } else {
-                $result->set_result(strval($test_function()));
-            }
-            $result->pass();
-        } catch (Error $err) {
-            $err->test_data = $dataset_name;
-            $result->set_error($err);
-        } catch (Throwable $ex) {
-            if (array_reduce($exceptions, is_equal_reduced(get_class($ex)), false) === false) {
-                count_assertion_fail();
-                $err = new TestError("unexpected: (" . $ex->getMessage() . ") [$dataset_name] [$value]", get_class($ex), join(', ', $exceptions), $ex);
-                $result->set_error($err);
+            // A null dataset is still one argument, unlike a test without a provider.
+            $output = $dataset_name !== null ? $test_function($value) : $test_function();
+            if ($exceptions !== []) {
+                $result->set_error(new TestError('expected exception was not thrown', 'normal return', join(', ', $exceptions)));
             } else {
                 $result->pass();
             }
+        } catch (Throwable $ex) {
+            $expected = false;
+            if (!$ex instanceof TestError && !$ex instanceof TimeoutError && !$ex instanceof \AssertionError) {
+                foreach ($exceptions as $exception) {
+                    if (is_a($ex, $exception)) {
+                        $expected = true;
+                        break;
+                    }
+                }
+            }
+            if ($expected) {
+                // The annotation is an implicit successful assertion.
+                count_assertion_pass();
+                $result->pass();
+            } else {
+                $err = $ex instanceof TestError ? $ex : new TestError(
+                    'unexpected: (' . $ex->getMessage() . ')', get_class($ex),
+                    $exceptions !== [] ? join(', ', $exceptions) : 'no exception', $ex
+                );
+                $err->test_data = $dataset_name;
+                $result->set_error($err);
+            }
         } finally {
-            $out = ob_get_contents();
-            $result->set_console($out ?: "");
-            ob_end_clean();
+            // Result conversion is a runner operation, not an expected exception.
+            if ($result->pass && isset($output)) {
+                try {
+                    $result->set_result(strval($output));
+                } catch (Throwable $ex) {
+                    $result->set_error($ex);
+                }
+            }
+            $console = '';
+            while (ob_get_level() > $buffer_level) {
+                $level = ob_get_level();
+                $console = @ob_get_clean() . $console;
+                if (ob_get_level() === $level) {
+                    $result->set_error(new \RuntimeException('test left a non-removable output buffer'));
+                    break;
+                }
+            }
+            $result->set_console($console);
+            $result->assertions = $GLOBALS[ASSERT_CNT] - $assertions_before;
             if ($has_pcntl) {
                 pcntl_alarm(0);
-                pcntl_signal(SIGALRM, SIG_DFL);
+                pcntl_signal(SIGALRM, $previous_handler);
+                pcntl_async_signals($previous_async);
+                if ($previous_alarm > 0) {
+                    pcntl_alarm(max(1, $previous_alarm - (int) (microtime(true) - $t_start)));
+                }
             }
         }
-        // fallback timeout check (always applies — pcntl_alarm only handles integer seconds)
-        if ($timeout > 0 && $result->pass) {
-            $elapsed = microtime(true) - $t_start;
-            if ($elapsed > $timeout) {
-                count_assertion_fail();
-                $result->pass = false;
-                $result->set_error(new TestError("test timed out after {$timeout}s (took " . number_format($elapsed, 3) . "s)", number_format($elapsed, 3) . "s", "{$timeout}s"));
-            }
+        // Fractional deadlines are post-run checks, not interrupting time limits.
+        $elapsed = microtime(true) - $t_start;
+        if ($timeout > 0 && $elapsed > $timeout && $result->pass) {
+            $result->set_error(new TestError("test timed out after {$timeout}s (took " . number_format($elapsed, 3) . "s)", number_format($elapsed, 3) . 's', "{$timeout}s"));
         }
         return $result;
     }
 
-    // run the test (remove pass by ref)
     function run_test(callable $test_function, array $test_data): array
     {
         $timeout = isset($test_data['timeout']) ? (float) $test_data['timeout'] : 0;
-        $results = array();
-        if (isset($test_data['dataprovider'])) {
-            foreach (call_user_func($test_data['dataprovider']) as $dataset_name => $value) {
-                $result = do_test($test_function, $test_data['exception'], strval($dataset_name), $value, $timeout);
-                $results[] = $result;
+        $results = [];
+        try {
+            if (isset($test_data['dataprovider'])) {
+                $datasets = call_user_func($test_data['dataprovider']);
+                if (!is_iterable($datasets)) {
+                    throw new \UnexpectedValueException('data provider must return an iterable');
+                }
+                foreach ($datasets as $dataset_name => $value) {
+                    $results[] = do_test($test_function, $test_data['exception'], strval($dataset_name), $value, $timeout);
+                }
+            } else {
+                $results[] = do_test($test_function, $test_data['exception'], null, null, $timeout);
             }
-        } else {
-            $results[] = do_test($test_function, $test_data['exception'], null, null, $timeout);
+        } catch (Throwable $ex) {
+            $result = new TestResult();
+            $result->set_error($ex);
+            $results[] = $result;
         }
-
+        if ($results === []) {
+            $result = new TestResult();
+            $result->incomplete = true;
+            $result->set_error(new TestError('data provider produced no cases', 0, 'at least one case'));
+            $results[] = $result;
+        }
+        foreach ($results as $result) {
+            if ($result->pass && $result->assertions === 0) {
+                $result->incomplete = true;
+                $result->set_error(new TestError('test case made no assertions', 0, 'at least one assertion'));
+            }
+        }
         return $results;
     }
 
@@ -1178,7 +1239,9 @@ version: 1
     // loop over all user included functions
     $coverage = array();
     $json_results = array();
-    do_for_all($just_test_functions, function ($function_name) use (&$coverage, &$json_results, $options, $is_test_fn) {
+    // Test outcomes are independent of mutable assertion counters and output filters.
+    $summary = ['total' => 0, 'passed' => 0, 'failed' => 0, 'incomplete' => 0, 'skipped' => 0, 'ambiguous' => 0];
+    do_for_all($just_test_functions, function ($function_name) use (&$coverage, &$json_results, &$summary, $options, $is_test_fn) {
 
         // exclude functions that don't match test name signature
         if (!$is_test_fn($function_name, $options)) {
@@ -1189,6 +1252,7 @@ version: 1
         if (is_excluded_test($test_data, $options)) {
             return;
         }
+        $summary['total']++;
 
         // display the test we are running. In errors-only mode (-x), buffer the header and
         // flush it only if the test fails, so passing tests produce no output at all.
@@ -1201,11 +1265,25 @@ version: 1
             }
         }
 
+        // Listing is discovery only, even for skipped/todo tests.
+        if ($options['l']) {
+            if ($options['j']) {
+                $json_results[] = [
+                    'name' => $function_name,
+                    'file' => $test_data['file'],
+                    'type' => $test_data['type'],
+                ];
+            } else if (errors_only($options)) {
+                echo $test_header;
+            }
+            return;
+        }
+
         // handle @skip and @todo annotations
         if (isset($test_data['skip']) || isset($test_data['todo'])) {
             $reason = isset($test_data['todo']) ? $test_data['todo'] : $test_data['skip'];
             $test_data['status'] = isset($test_data['todo']) ? 'TODO' : 'SKIP';
-            $GLOBALS['assert_skip_count'] = ($GLOBALS['assert_skip_count'] ?? 0) + 1;
+            $summary['skipped']++;
             if (!$options['j'] && !errors_only($options)) {
                 $label = $test_data['status'];
                 $out = CYAN . sprintf("%-4s", $label) . NORML;
@@ -1230,22 +1308,7 @@ version: 1
             return;
         }
 
-        // only list tests
-        if ($options['l']) {
-            if ($options['j']) {
-                $json_results[] = [
-                    'name' => $function_name,
-                    'file' => $test_data['file'],
-                    'type' => $test_data['type'],
-                ];
-            } else if (errors_only($options)) {
-                // -x buffered the header; list mode has no pass/fail, so flush it here
-                echo $test_header;
-            }
-            return;
-        }
         $error = $result = $t0 = $t1 = null;
-        $pre_test_assert_count = $GLOBALS[ASSERT_CNT];
 
         // turn on output buffer and start the operation log for code coverage reporting
         if ($options[COVERAGE]) {
@@ -1286,23 +1349,26 @@ version: 1
         }
 
 
-        $test_data['error'] = (!$passed) ?
-            array_reduce($results, function ($last_error, TestResult $result) {
-                return (!$result->pass) ? $result->error : $last_error;
-            }, null) :
-            get_error_log($test_data['phperror'], $options);
+        // Always drain the log, including after exceptions, so errors cannot leak.
+        $log_error = get_error_log($test_data['phperror'], $options);
+        $test_data['error'] = $log_error;
+        $has_failure = $log_error !== null;
+        foreach ($results as $result) {
+            if (!$result->pass) {
+                if (!$result->incomplete || $test_data['error'] === null) {
+                    $test_data['error'] = $result->error;
+                }
+                $has_failure = $has_failure || !$result->incomplete;
+            }
+        }
+        $passed = $passed && $log_error === null;
+        $test_data['status'] = $passed ? 'OK' : ($has_failure ? 'FAIL' : 'IN');
+        $summary[$passed ? 'passed' : ($has_failure ? 'failed' : 'incomplete')]++;
 
         $duration = $t1 - $t0;
-        $assertion_count = $GLOBALS[ASSERT_CNT] - $pre_test_assert_count;
+        $assertion_count = array_sum(array_map(fn(TestResult $result) => $result->assertions, $results));
 
         if ($passed) {
-            $test_data['status'] = "OK";
-            if ($GLOBALS[ASSERT_CNT] === $pre_test_assert_count) {
-                count_assertion_fail();
-                $test_data['status'] = "IN";
-                $GLOBALS['assert_incomplete_count'] = ($GLOBALS['assert_incomplete_count'] ?? 0) + 1;
-            }
-            // in errors-only mode, OK and IN are both hidden (IN = incomplete, per user spec)
             if (!$options['j'] && !errors_only($options)) {
                 $success_display_fn = (function_exists("\\user_format_test_success")) ? "\\user_format_test_success" : "\\TinyTest\\format_test_success";
                 echo $success_display_fn($test_data, $options, $duration);
@@ -1320,7 +1386,7 @@ version: 1
 
         // track @ambiguous tests (test still runs, just flagged)
         if (isset($test_data['ambiguous'])) {
-            $GLOBALS['assert_ambiguous_count'] = ($GLOBALS['assert_ambiguous_count'] ?? 0) + 1;
+            $summary['ambiguous']++;
             if (!$options['j'] && !errors_only($options)) {
                 $reason = $test_data['ambiguous'];
                 echo YELLOW . " AMBG" . NORML . ($reason !== '' ? GREY . " ($reason)" . NORML : '');
@@ -1332,7 +1398,7 @@ version: 1
             $json_entry = [
                 'name' => $function_name,
                 'file' => $test_data['file'],
-                'status' => $test_data['status'] ?? 'FAIL',
+                'status' => $test_data['status'],
                 'duration' => round($duration, 6),
                 'assertions' => $assertion_count,
             ];
@@ -1384,15 +1450,12 @@ version: 1
         $output = [
             'version' => (int) VER,
             'tests' => $json_results,
-            'summary' => [
-                'total' => (int) $GLOBALS[ASSERT_CNT],
-                'passed' => (int) $GLOBALS['assert_pass_count'],
-                'failed' => (int) $GLOBALS['assert_fail_count'],
-                // use global counters (not $json_results) so counts stay accurate
-                // when -x filters passing/skipped/todo/incomplete entries out of the array
-                'incomplete' => (int) ($GLOBALS['assert_incomplete_count'] ?? 0),
-                'skipped' => (int) ($GLOBALS['assert_skip_count'] ?? 0),
-                'ambiguous' => (int) ($GLOBALS['assert_ambiguous_count'] ?? 0),
+            'summary' => $summary + [
+                'assertions' => [
+                    'total' => (int) $GLOBALS[ASSERT_CNT],
+                    'passed' => (int) $GLOBALS['assert_pass_count'],
+                    'failed' => (int) $GLOBALS['assert_fail_count'],
+                ],
                 'duration' => round($m1 - $GLOBALS['m0'], 6),
                 'memory_kb' => (int) (memory_get_peak_usage(true) / 1024),
             ],
@@ -1403,9 +1466,9 @@ version: 1
         echo json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     } else {
         // display the test results
-        $skip_count = $GLOBALS['assert_skip_count'] ?? 0;
+        $skip_count = $summary['skipped'];
         $skip_str = $skip_count > 0 ? ", $skip_count skipped" : "";
-        $ambiguous_count = $GLOBALS['assert_ambiguous_count'] ?? 0;
+        $ambiguous_count = $summary['ambiguous'];
         $ambig_str = $ambiguous_count > 0 ? ", $ambiguous_count ambiguous" : "";
         $cov_total = 0;
         $uncov_total = 0;
@@ -1416,7 +1479,7 @@ version: 1
         $fn_total = $cov_total + $uncov_total;
         $cov_str = $fn_total > 0 ? ", $cov_total/$fn_total functions covered" : "";
         $uncov_str = $uncov_total > 0 ? ", $uncov_total uncovered" : "";
-        echo "\n" . NORML . $GLOBALS[ASSERT_CNT] . " tests, " . $GLOBALS['assert_pass_count'] . " passed, " . $GLOBALS['assert_fail_count'] . " failures/exceptions" . $skip_str . $ambig_str . $cov_str . $uncov_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
+        echo "\n" . NORML . $summary['total'] . " tests, " . $summary['passed'] . " passed, " . $summary['failed'] . " failures/exceptions, " . $summary['incomplete'] . " incomplete" . $skip_str . $ambig_str . $cov_str . $uncov_str . ", using " . number_format(memory_get_peak_usage(true) / 1024) . "KB in " . number_format($m1 - $GLOBALS['m0'], 5) . " seconds";
     }
 
     // run any registered cleanup callbacks (shutdown handlers don't fire under phpdbg)
@@ -1424,5 +1487,5 @@ version: 1
         $cb();
     }
 
-    exit($GLOBALS['assert_fail_count'] > 0 ? 1 : 0);
+    exit($summary['failed'] > 0 || $summary['incomplete'] > 0 ? 1 : 0);
 }
