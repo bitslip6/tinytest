@@ -1,6 +1,12 @@
 <?php
 
 declare(strict_types=1);
+
+// Coverage/profile helpers are optional framework declarations.
+require_once dirname(__DIR__) . '/src/coverage/source_map.php';
+require_once dirname(__DIR__) . '/src/coverage/lcov.php';
+require_once dirname(__DIR__) . '/src/profiling.php';
+
 /**
  * Tests for tinytest.php utility functions.
  * These functions are already loaded in the TinyTest namespace when the runner executes.

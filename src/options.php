@@ -107,3 +107,54 @@ function validate_options(array $options): array
     }
     return $options;
 }
+
+function parse_options(array $options): array
+{
+    // count quiet setting
+    $q = $options['q'] ?? array();
+    $options['q'] = is_array($q) ? count($q) : 1;
+
+    // print_r($options);
+    // force inclusion to array type
+    if (isset($options['i'])) {
+        $options['i'] = array_filter((array)$options['i'], 'is_string');
+    }
+    if (isset($options['e'])) {
+        $options['e'] = array_filter((array)$options['e'], 'is_string');
+    }
+    // normalize -f to an array so multiple -f flags are supported
+    if (isset($options['f'])) {
+        $options['f'] = array_values(array_filter((array)$options['f'], 'is_string'));
+        if (count($options['f']) === 0) {
+            unset($options['f']);
+        }
+    }
+
+    //print_r($options);
+    /*
+$options['i'] = is_array($options['i']) ? $options['i'] : isset($options['i']) ? array($options['i']) : array();
+$options['e'] = is_array($options['e']) ? $options['e'] : isset($options['e']) ? array($options['e']) : array();
+if (count($options['i']) <= 0) { unset($options['i']); }
+if (count($options['e']) <= 0) { unset($options['e']); }
+*/
+
+    // Bootstrap resolution/validation happens separately; parsing never runs project code.
+
+    // php error squelching
+    $options['s'] = isset($options['s']) ? true : false;
+    $options['l'] = isset($options['l']) ? true : false;
+    $options['p'] = isset($options['p']) ? true : false;
+    $options['k'] = isset($options['k']) ? true : false;
+    $options['n'] = isset($options['n']) ? true : false;
+    $options['cost'] = isset($options['w']) ? 'wt' : 'cpu';
+    $options['j'] = isset($options['j']) ? true : false;
+    // Errors-only includes all exit-causing outcomes, including incomplete.
+    $options['x'] = isset($options['x']) ? true : false;
+    // code coverage reporting
+    $options[COVERAGE] = isset($options[COVERAGE]) ? true : false;
+    $options[SHOW_COVERAGE] = isset($options[SHOW_COVERAGE]) ? true : false;
+    if ($options[SHOW_COVERAGE]) {
+        $options[COVERAGE] = true;
+    }
+    return $options;
+}
