@@ -1,0 +1,27 @@
+# Put inside nginx's http configuration. REPLACE the absolute checkout path.
+# Loopback binding is deliberate: access by local browser, curl or SSH tunnel.
+# If exposed remotely, add TLS and access controls; never public plaintext.
+server {
+    listen 127.0.0.1:8099;
+    server_name localhost;
+    client_max_body_size 64k;
+
+    location = /fpm-tests {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /absolute/path/to/tinytest/php-fpm-tests/index.php;
+        fastcgi_param HTTP_AUTHORIZATION $http_authorization;
+        fastcgi_pass unix:/run/php/tinytest-e2e-driver.sock;
+        fastcgi_read_timeout 65s;
+    }
+
+    location = /fpm-worker {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /absolute/path/to/tinytest/php-fpm-tests/worker.php;
+        fastcgi_param HTTP_AUTHORIZATION $http_authorization;
+        fastcgi_pass unix:/run/php/tinytest-e2e-worker.sock;
+        fastcgi_read_timeout 8s;
+    }
+
+    # No arbitrary PHP dispatch, fixture URLs, config files or state files.
+    location / { return 404; }
+}

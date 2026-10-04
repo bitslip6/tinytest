@@ -1,6 +1,8 @@
 <?php declare(strict_types=1);
 namespace TinyTest;
 
+require_once __DIR__ . '/agent_contract.php';
+
 /**
  * Host must load its global AgentTool interface first. Import this file directly;
  * do not load the CLI or acquire TinyTest runtime state in the host request.
@@ -36,23 +38,7 @@ final class TestRunnerTool implements \AgentTool
 
     public function definition(): array
     {
-        return [
-            'type' => 'function',
-            'name' => $this->name(),
-            'description' => 'Run trusted PHP TinyTest tests synchronously. Select a project-relative directory or files, optionally one exact global test function. Returns the JSON report: exit_code 0 succeeds, 1 means failed/incomplete tests, 2 means runner/tool error. Listing still loads PHP files. Tests share a child process, not the host request. Server wall-clock limit: ' . $this->timeout . ' seconds. Timeout kills the process group and returns timed_out=true; narrow the selection or investigate hangs.',
-            'strict' => true,
-            'parameters' => [
-                'type' => 'object',
-                'properties' => [
-                    'directory' => ['type' => ['string', 'null'], 'description' => 'Project-relative directory; shallow test_*.php discovery. Null when files are supplied.'],
-                    'files' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Project-relative PHP files. Empty when directory is supplied.'],
-                    'test' => ['type' => ['string', 'null'], 'description' => 'Exact global test function name, or null for all.'],
-                    'list' => ['type' => 'boolean', 'description' => 'List tests without executing bodies/providers.'],
-                ],
-                'required' => ['directory', 'files', 'test', 'list'],
-                'additionalProperties' => false,
-            ],
-        ];
+        return agent_tool_definition('Run trusted PHP TinyTest tests synchronously. Select a project-relative directory or files, optionally one exact global test function. Exit 0 succeeds, 1 means failed/incomplete tests, 2 means runner/tool error. Listing still loads PHP files. Server wall-clock limit: ' . $this->timeout . ' seconds. Timeout kills the process group and returns timed_out=true; narrow the selection or investigate hangs.');
     }
 
     public function execute(array $args): array
@@ -150,47 +136,12 @@ final class TestRunnerTool implements \AgentTool
 
     private function arguments(array $args): array
     {
-        $keys = ['directory', 'files', 'test', 'list'];
-        if (array_diff(array_keys($args), $keys) !== [] || array_diff($keys, array_keys($args)) !== []) {
-            throw new \InvalidArgumentException('expected exactly directory, files, test and list');
-        }
-        if (($args['directory'] !== null && !is_string($args['directory']))
-            || !is_array($args['files']) || !is_bool($args['list'])
-            || ($args['test'] !== null && (!is_string($args['test']) || $args['test'] === ''))) {
-            throw new \InvalidArgumentException('invalid tool argument types');
-        }
-        if (($args['directory'] !== null) === ($args['files'] !== [])) {
-            throw new \InvalidArgumentException('select either directory or nonempty files, not both');
-        }
-        $arguments = [];
-        if ($args['directory'] !== null) {
-            $arguments = ['-d', $this->projectPath($args['directory'], true)];
-        } else {
-            foreach ($args['files'] as $file) {
-                if (!is_string($file)) { throw new \InvalidArgumentException('files must contain strings'); }
-                $arguments[] = '-f';
-                $arguments[] = $this->projectPath($file, false);
-            }
-        }
-        if ($this->bootstrap !== null) { $arguments[] = '-b'; $arguments[] = $this->bootstrap; }
-        if ($args['test'] !== null) { $arguments[] = '-t' . $args['test']; }
-        if ($args['list']) { $arguments[] = '-l'; }
-        return $arguments;
+        return agent_arguments($args, $this->root, $this->bootstrap);
     }
 
     private function projectPath(string $relative, bool $directory): string
     {
-        if ($relative === '' || strpos($relative, "\0") !== false
-            || $relative[0] === '/' || $relative[0] === '\\' || preg_match('/^[A-Za-z]:/', $relative)) {
-            throw new \InvalidArgumentException('paths must be project-relative');
-        }
-        $path = realpath($this->root . DIRECTORY_SEPARATOR . $relative);
-        $prefix = rtrim($this->root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
-        if ($path === false || ($path !== $this->root && strpos($path, $prefix) !== 0)
-            || !is_readable($path) || ($directory ? !is_dir($path) : !is_file($path))) {
-            throw new \InvalidArgumentException('path must resolve to a readable project ' . ($directory ? 'directory' : 'file'));
-        }
-        return $path;
+        return agent_project_path($this->root, $relative, $directory);
     }
 
     private function utf8(string $text): string

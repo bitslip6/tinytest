@@ -28,6 +28,10 @@ sudo apt install php-phpdbg   # Debian/Ubuntu
 
 ## Quick Start
 
+For a compact, self-contained reference covering test writing, assertions, annotations,
+CLI usage and result interpretation, read [`tinytest.php`](tinytest.php). Its guide
+requires no implementation-file reading; the executable code remains a thin adapter.
+
 ### With an AI coding agent (recommended)
 
 The setup script installs TinyTest skills and agent instructions into your project:
@@ -77,6 +81,60 @@ Run it:
 tinytest -f tests/test_hello_world.php
 ```
 
+
+## Server-owned agent tool
+
+**Without `proc_open`/`exec`:** use `TinyTest\HttpTestRunnerTool` from
+`src/http_agent_tool.php`, pointing at the protected
+`agent-integration/http-worker.php` endpoint on a dedicated PHP web service.
+Neither HTTP component launches a process. The host requires PHP cURL; the worker
+runs one suite per request. HTTPS, a server-owned bearer token and project root,
+and a real server-side request termination policy are required for deployment.
+HTTP client timeouts do **not** kill remote tests. See [new-agents.md](new-agents.md)
+for complete HTTP/FPM setup, argument/result contracts and limitations.
+
+**With POSIX process launch available:** load your application's global `AgentTool` interface first, then the standalone
+adapter (do **not** include the executable or core bootstrap in the host):
+
+```php
+require_once '/path/to/tinytest/src/agent_tool.php';
+$tool = new \TinyTest\TestRunnerTool(
+    '/absolute/project/root',
+    '/usr/bin/php',             // CLI executable; PHP_BINARY may be FPM in a web host
+    'tests/bootstrap.php',      // optional project-relative bootstrap, otherwise null
+    30.0                       // server-owned wall-clock deadline in seconds
+);
+$definition = $tool->definition(); // Responses API function tool, strict schema
+$result = $tool->execute([
+    'directory' => 'tests',     // or null with nonempty files
+    'files' => [],              // e.g. ['tests/test_parser.php']
+    'test' => null,             // or one exact global test function name
+    'list' => false,
+]);
+```
+
+`TinyTest\TestRunnerTool implements \AgentTool` using the interface supplied by the
+host; it does not define a competing interface. All four argument keys are required.
+Constructor configuration is server-owned; invalid configuration throws. Execution
+errors return `exit_code: 2` and `errors` with `kind: tool`; successful transport
+returns the normal TinyTest JSON report, including test failure exits 1 and runner
+error exits 2. Return this array to the agent; the adapter itself never prints or exits.
+
+Each call uses a fresh CLI subprocess with captured stdout/stderr, so repeated calls,
+project output and test `exit()` do not affect host runtime state. Requires `proc_open`
+and writable temp storage. Paths must resolve inside the configured project root,
+including symlink resolution; file-level PHP and project overrides still execute.
+Requires a POSIX host with `posix_kill` and a CLI child with `posix_setsid`; Windows
+is unsupported. The default 30-second wall-clock deadline covers the entire invocation.
+On timeout the dedicated process group is sent SIGKILL and the tool returns exit 2,
+`timed_out: true`, `timeout_seconds`, and a readable `errors[].kind: timeout` message.
+Use **trusted code only**: this is not a security sandbox. Deliberately detached
+processes can escape the group, SIGKILL cannot guarantee immediate reaping of
+OS-uninterruptible tasks, and temporary output files have no disk quota. Use deployment
+resource limits/cgroups for stronger containment. See [new-agents.md](new-agents.md)
+for the complete integration handoff.
+CLI INI/extensions come from the configured executable, not the host web SAPI.
+The ordinary bootstrap does not load this host-specific adapter.
 
 ## Writing Tests
 
@@ -214,7 +272,7 @@ assert_contains($error->getMessage(), "intentional failure", "failure explains w
 
 ### Optional verbose output
 
-`assert_true`, `assert_false`, `assert_eq`, and `assert_contains` accept an optional final `$output` parameter for additional console output on failure:
+`assert_true`, `assert_false`, and `assert_eq` accept an optional final `$output` parameter for additional console output on failure:
 
 ```php
 assert_eq($result, 42, "wrong answer", "debug: input was $input");
@@ -720,6 +778,10 @@ cd /path/to/my-project
 php -d zend.assertions=1 tinytest.php -j -d tests/
 php tests/cli_contracts.php
 php tests/boundary_contracts.php
+php tests/entry_guide_contracts.php
+php tests/agent_tool_contracts.php
+php tests/agent_timeout_contracts.php
+php tests/http_agent_contracts.php
 ```
 
 The independent subprocess harnesses check real exit codes, JSON outcomes, sticky assertion failures, exception/PHP-error expectations, providers, filtering, input validation, startup settings, and noisy/aborted worker processes. Deliberately failing fixtures live in `tests/fixtures/` (or temporary projects), outside the default shallow test scan. The unit suite includes an intentional stderr exercise; JSON captures it in `output.stderr`.

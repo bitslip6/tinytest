@@ -12,6 +12,10 @@ From the repository root:
 php -d zend.assertions=1 tinytest.php -j -d tests/
 php tests/cli_contracts.php
 php tests/boundary_contracts.php
+php tests/entry_guide_contracts.php
+php tests/agent_tool_contracts.php
+php tests/agent_timeout_contracts.php
+php tests/http_agent_contracts.php
 ```
 
 Lint changed PHP files with `php -l path/to/file.php`.
@@ -24,6 +28,9 @@ Coverage/profiling require optional backends and separate verification.
 
 | Task | Implementation | Tests |
 |---|---|---|
+| Hosted `AgentTool` adapter, deadline/process group | `src/agent_tool.php`, `src/agent_worker.php` | `tests/agent_tool_contracts.php`, `tests/agent_timeout_contracts.php` |
+| HTTP agent client/worker (no process APIs) | `src/http_agent_tool.php`, `src/http_worker.php`, `src/agent_contract.php`, `agent-integration/http-worker.php` | `tests/http_agent_contracts.php` |
+| Real nginx/FPM acceptance probe | `php-fpm-tests/index.php`, `php-fpm-tests/worker.php` | Deploy using `php-fpm-tests/README.md`; includes a deliberate infinite-loop fixture |
 | Argument parsing, paths, bootstrap resolution, backend preflight | `src/options.php` | `tests/boundary_contracts.php`, `tests/test_tinytest.php` |
 | CLI errors, exit codes, JSON supervision/serialization | `src/cli.php` | `tests/boundary_contracts.php`, `tests/cli_contracts.php` |
 | Sticky assertion scopes and PHP diagnostics | `src/execution_state.php` | `tests/test_execution.php`, boundary contracts |

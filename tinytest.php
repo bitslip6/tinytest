@@ -19,7 +19,14 @@
 // Fourth constructor argument: wall-clock seconds (default 30). Timeout kills the
 // process group and returns exit_code=2, timed_out=true, timeout_seconds, errors.
 // Trusted PHP only: detached processes can escape; no disk quota/security sandbox.
-// Complete host integration instructions: new-agents.md.
+// WITHOUT proc_open/exec: load src/http_agent_tool.php and instantiate
+// new \TinyTest\HttpTestRunnerTool('https://worker/tinytest-worker', $secret, 40.0).
+// Same interface/arguments; paths resolve on the WORKER. Host needs PHP cURL.
+// Deploy agent-integration/http-worker.php in a separate web request/pool with
+// server-configured project root, bearer token and hard request termination.
+// HTTP timeout only stops waiting: remote termination is NOT confirmed. No retries
+// on unknown outcomes. Neither HTTP component launches a process. Trusted PHP only.
+// Complete host/HTTP integration and FPM configuration: new-agents.md.
 // Never runs the core runtime in the host; repeated tool calls use fresh processes.
 // src/bootstrap.php loads declarations, but standalone assertion use and scoped,
 // repeatable runtime initialization are not yet supported. Use fresh CLI runs.

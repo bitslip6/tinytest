@@ -85,10 +85,13 @@ function supervise_json(array $argv): array
     }
 }
 
-function run_cli(array $argv): int
+// A report sink is reserved for a dedicated HTTP worker request: it bypasses
+// subprocess transport, NOT initialization/execution/cleanup. Never use it to
+// run project PHP inside an agent-host request or a persistent application loop.
+function run_cli(array $argv, ?callable $report_sink = null): int
 {
     $json = json_requested($argv);
-    $worker = getenv('TINYTEST_JSON_WORKER') === '1';
+    $worker = $report_sink === null && getenv('TINYTEST_JSON_WORKER') === '1';
     $extensions = getenv('TINYTEST_WORKER_EXTENSIONS');
     $ini_hash = getenv('TINYTEST_WORKER_INI');
     // Project subprocesses must not accidentally inherit worker mode.
@@ -110,7 +113,7 @@ function run_cli(array $argv): int
         if ($worker && $ini_hash !== hash('sha256', json_encode(array_map('strval', ini_get_all(null, false))))) {
             throw new \RuntimeException('worker PHP settings differ from parent; check php.ini and startup -d values');
         }
-        if ($json && !$worker) {
+        if ($json && !$worker && $report_sink === null) {
             $report = supervise_json($argv);
         } else {
             $phase = 'initialization';
@@ -151,7 +154,9 @@ function run_cli(array $argv): int
         if (defined('TinyTest\\ERR_OUT')) { @unlink(ERR_OUT); }
         restore_handler($handler, $previous);
     }
-    if ($worker) {
+    if ($report_sink !== null) {
+        $report_sink($report);
+    } elseif ($worker) {
         $channel = fopen('php://fd/3', 'w');
         if ($channel === false) { throw new \RuntimeException('missing private JSON report channel'); }
         fwrite($channel, encode_report($report));

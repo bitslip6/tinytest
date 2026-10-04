@@ -4,7 +4,7 @@
 
 ## Objective
 
-Make `tinytest.php` a 10–30-line executable adapter, with a short, explicit lifecycle visible through named functions. An agent changing an assertion, selector, reporter, or coverage algorithm should need the root map and one or two relevant modules—not a replacement monolith.
+Make `tinytest.php` a self-contained, concise consumer guide followed by a tiny executable adapter (at most 30 lines of executable code; documentation does not count). An unfamiliar agent must be able to write tests, select/run them, and interpret outcomes by reading this file alone. Include a runnable example, the complete assertion/CLI reference, annotations/providers, setup/discovery, failure semantics, optional backend limits, and a compact implementation map. Keep a short, explicit lifecycle visible through named functions. An agent changing an assertion, selector, reporter, or coverage algorithm should need the root map and one or two relevant modules—not a replacement monolith.
 
 Keep plain global test/assertion functions, zero required third-party runtime libraries, existing CLI invocations, and documented `user_*` hooks. Do not introduce a container, automatic plugin scanning, magic autoloading, or a class hierarchy.
 
@@ -121,7 +121,7 @@ exit(\TinyTest\run_cli($argv));
 - Preserve the console banner's root executable path if it is part of captured compatibility output; do not accidentally print `src/runtime.php`.
 - Optional modules load explicitly when requested. Framework self-tests that exercise coverage/profiling helpers must explicitly require those declarations; don't load optional modules on every ordinary run just to satisfy those tests.
 
-**Checkpoint:** root entry is 10–30 lines, runs from another working directory, and the supervisor still executes that root file. Hand off to safe-import work before claiming the library is import-safe.
+**Checkpoint:** root entry has at most 30 executable lines plus the self-contained consumer guide, runs from another working directory, and the supervisor still executes that root file. `php tests/entry_guide_contracts.php` verifies the embedded example and assertion-reference inventory. Hand off to safe-import work before claiming the library is import-safe.
 
 ### T4 — Make orchestration explain itself
 
@@ -150,7 +150,7 @@ Do not combine test execution with JSON encoding. `src/cli.php` owns descriptor/
 - Update `AGENTS.md` with task → implementation → tests, and the actual call chain. Keep it about 60–100 lines.
 - Add `docs/architecture.md` for dependency direction, library-vs-CLI entry points, hook ownership, and optional module loading.
 - README links to detailed contracts; do not repeat the whole implementation in agent templates.
-- Add a lightweight architecture check: executable/loader line budgets, explicit known includes, root entry free of function/class declarations, optional modules absent from an ordinary bootstrap's included-file list.
+- Add a lightweight architecture check: executable-code/loader line budgets (exclude the root consumer guide), explicit known includes, root entry free of executable function/class declarations, optional modules absent from an ordinary bootstrap's included-file list.
 
 ### T7 — Verify behavior and installation layout
 

@@ -1,6 +1,175 @@
 # Integrate TinyTest as a server-owned agent tool
 
-## Goal and boundaries
+## Choose a transport first
+
+- **No `proc_open`/`exec`: use the HTTP worker below.** Neither the host tool nor
+  HTTP worker launches a process. The web server owns separate PHP requests.
+- **POSIX process launch available:** use `TestRunnerTool` as described in the
+  local-process sections later in this document.
+
+Both implement the host's global `AgentTool` interface and expose the same
+`tinytest_run` name/schema. Register **one** transport under that name, not both.
+Do not silently switch transports on failure: a failed HTTP response can mean a
+remote run is still executing, and a retry could repeat destructive side effects.
+
+## HTTP worker integration (no shell/process APIs)
+
+### Host wiring
+
+The agent host needs PHP cURL with TLS support; no POSIX extension, CLI executable,
+`proc_open` or `exec` is needed. Load your existing global `AgentTool` interface,
+then:
+
+```php
+require_once '/opt/tinytest/src/http_agent_tool.php';
+$tool = new \TinyTest\HttpTestRunnerTool(
+    'https://test-worker.internal/tinytest-worker',
+    $secrets->get('tinytest-worker-token'), // at least 32 characters; no whitespace
+    40.0                                 // HTTP wait limit, NOT remote kill timeout
+);
+$registry[$tool->name()] = $tool;
+```
+
+Use the same `definition()` registration and `execute()` dispatch illustrated
+below. URL/token/wait limit are server configuration, never agent arguments.
+HTTPS certificate verification is always enabled, redirects are not followed,
+and credentials embedded in URLs are rejected. Fourth constructor argument `true`
+allows plaintext HTTP for explicitly trusted networks/local testing only; never
+send the bearer token over a public plaintext connection.
+
+### Worker deployment
+
+Copy the entire TinyTest distribution, including `agent-integration/http-worker.php`,
+to the worker. Mount or deploy the project code/tests there. Paths supplied to the
+tool are relative to the **worker's** root, not the agent host filesystem. Arrange
+workspace synchronization/deployment yourself so tests run the agent's current
+revision. No source upload or arbitrary project selection API is provided.
+
+Expose only `agent-integration/http-worker.php` at the fixed worker URL. Configure
+these values on the worker web service (FPM needs explicit environment forwarding):
+
+```text
+TINYTEST_HTTP_PROJECT_ROOT=/srv/my-project
+TINYTEST_HTTP_TOKEN=<random secret, at least 32 characters>
+TINYTEST_HTTP_BOOTSTRAP=tests/bootstrap.php
+```
+
+Omit/empty `TINYTEST_HTTP_BOOTSTRAP` if not needed. The endpoint requires POST JSON
+and `Authorization: Bearer <token>`. It authenticates before importing/loading
+project code. Keep the token out of repositories, URLs, access logs and agent
+messages. Use HTTPS plus network access controls; one configured project per
+endpoint. The remote service must have the project's PHP extensions/dependencies.
+
+The endpoint must be a **dedicated worker request**, not an include inside the
+agent's application request. Use a separate pool/service with enough capacity;
+a synchronous call into an exhausted pool serving the caller can deadlock.
+Tests execute trusted PHP, can access worker resources, and are not sandboxed.
+Disabling process APIs does not make arbitrary submitted PHP safe.
+
+### Hard termination belongs to the HTTP server
+
+A cURL timeout only stops the client waiting. PHP `max_execution_time` is NOT a
+reliable wall-clock limit for blocking IO on Unix. Configure the worker's process
+manager to terminate long requests. Example dedicated PHP-FPM pool settings:
+
+```ini
+[tinytest-worker]
+user = tinytest
+group = tinytest
+listen = /run/php/tinytest-worker.sock
+pm = ondemand
+pm.max_children = 2
+pm.max_requests = 1
+request_terminate_timeout = 30s
+request_terminate_timeout_track_finished = yes
+clear_env = yes
+env[TINYTEST_HTTP_PROJECT_ROOT] = /srv/my-project
+env[TINYTEST_HTTP_BOOTSTRAP] = tests/bootstrap.php
+env[TINYTEST_HTTP_TOKEN] = $TINYTEST_HTTP_TOKEN
+php_admin_value[disable_functions] = proc_open,exec,shell_exec,system,passthru,popen
+php_admin_flag[display_errors] = off
+php_admin_flag[log_errors] = on
+```
+
+Supply the token to the FPM service environment/secret manager. Set socket ownership
+and permissions for your web server. `pm.max_requests=1` recycles the process after
+each request rather than relying solely on PHP request-state reset. Track-finished
+termination also covers shutdown/`fastcgi_finish_request()` work. Resource/permission
+limits are deployment policy; add container/cgroup controls for stronger isolation.
+
+Example nginx location inside a TLS-enabled, access-restricted server:
+
+```nginx
+location = /tinytest-worker {
+    include fastcgi_params;
+    fastcgi_param SCRIPT_FILENAME /opt/tinytest/agent-integration/http-worker.php;
+    fastcgi_param HTTP_AUTHORIZATION $http_authorization;
+    fastcgi_pass unix:/run/php/tinytest-worker.sock;
+    fastcgi_read_timeout 35s;
+    client_max_body_size 64k;
+}
+```
+
+The PHP-FPM 30s limit kills the worker; nginx's 35s read timeout and the host's
+40s HTTP deadline do **not**. Leave the agent host request timeout longer still.
+If you cannot configure any real worker termination policy, this transport remains
+usable for trusted terminating tests but **cannot promise hard termination**.
+`tests/http_agent_contracts.php` uses a development server, not FPM. For actual
+nginx/FPM acceptance, deploy [`php-fpm-tests/`](php-fpm-tests/README.md): it includes
+a browser/JSON driver, isolated fixtures, sample pools/locations and heartbeat-based
+hard-termination checks. Verify your deployment with that probe before release.
+
+### HTTP results and failure behavior
+
+Normal HTTP execution returns the same v12 test-report array as local execution.
+Handled test failure is HTTP 200 with `exit_code: 1`; handled runner error is HTTP
+200 with `exit_code: 2`. Never interpret HTTP 200 alone as passing tests.
+Authentication/configuration/protocol rejection uses 401/503/400/405/413 as applicable.
+The tool reports non-200 responses as readable HTTP errors.
+
+Tests, bootstrap and shutdown stdout are buffered, with a 64 KiB preview for
+non-case output. Completed reports are limited to 16 MiB; host reads to 20 MiB.
+Normal test `exit()` and shutdown exceptions produce an error report where PHP
+can finalize the response. Process-manager kills/OOMs/connection failures may
+produce no JSON: the client reports an unknown remote outcome, never success.
+Native stderr goes to worker/server logs, **not** the report. CLI `STDOUT`/`STDERR`
+constants are not available under web SAPIs: write portable test output or use
+`php://stderr` for logs. Headers/cookies from project code are removed when possible;
+code that flushes the HTTP response directly can invalidate capture. This is not
+the CLI supervisor's descriptor-level output guarantee.
+
+A client timeout returns:
+
+```json
+{
+  "exit_code": 2,
+  "timed_out": true,
+  "termination_confirmed": false,
+  "execution_state": "unknown",
+  "errors": [{"kind": "http_timeout", "message": "HTTP worker did not respond within 40 seconds. This stopped waiting, NOT the remote tests. Check the worker/request logs and server hard-timeout policy before retrying."}]
+}
+```
+
+Never automatically retry an unknown outcome. Inspect worker logs and application
+side effects. HTTP mode has no job ID, cancellation endpoint, durable result store
+or remote termination acknowledgment; add a job service if those are required.
+
+### HTTP verification
+
+```sh
+php -d display_errors=1 -d error_reporting=32767 tests/http_agent_contracts.php
+```
+
+The harness starts a test HTTP server with `proc_open`/`exec` and other launch APIs
+**disabled on the server**, and checks auth, output capture, exits, shutdown failures,
+repeated requests and honest client-timeout reporting. The harness itself needs
+process launching solely to provision that development server; deployment does not.
+Use [`php-fpm-tests/`](php-fpm-tests/README.md) to test through the real FPM service
+identity/endpoint, including token rejection, a hanging request killed by FPM,
+and a successful next run. Separately verify workspace synchronization and TLS for
+your application deployment.
+
+## Local-process transport: goal and boundaries
 
 Expose synchronous PHP test execution through your existing `AgentTool` registry.
 The caller receives an array, not printed output; TinyTest never exits the host
