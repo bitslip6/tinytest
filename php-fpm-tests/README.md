@@ -119,7 +119,7 @@ fixtures as your application suite.
 
 ## GitHub Actions acceptance
 
-[The nginx/FPM workflow](../.github/workflows/fpm.yml) runs this probe on PHP 8.5 for pull requests, pushes to `master`, merge-queue groups and manual dispatch. It installs nginx/FPM on an ephemeral Linux runner, then runs isolated instances as the runner user, not the package's system services. The existing configuration examples are rendered into private temporary configs with an ephemeral token, separate driver/worker sockets and a shared state directory. Only loopback HTTP is exposed.
+[The nginx/FPM workflow](../.github/workflows/fpm.yml) runs this probe on PHP 8.5 for pull requests, pushes to `master`, merge-queue groups and manual dispatch. It explicitly enables the `ondrej/php` APT repository for PHP 8.5 FPM/cURL packages (Ubuntu 24.04's default repositories do not provide them), installs nginx/FPM on an ephemeral Linux runner, then runs isolated instances as the runner user, not the package's system services. The existing configuration examples are rendered into private temporary configs with an ephemeral token, separate driver/worker sockets and a shared state directory. Only loopback HTTP is exposed.
 
 The job requires root `ok: true`, every probe check to pass, and an FPM error-log line attributing execution timeout/termination to the exact hanging worker PID. The artifact contains `report.json`, `termination-confirmed.txt`, service/config-test logs and any retained failure state; token-bearing configs are never uploaded. Script exit (including failure or a handled termination signal) stops both service process groups and removes private configs. Forced runner termination ultimately relies on the ephemeral VM's destruction.
 

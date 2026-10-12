@@ -22,7 +22,8 @@ function test_pass() { assert_eq($GLOBALS['host_marker'], 'child', 'bootstrap lo
 function test_fail() { assert_eq(1, 2, 'intentional'); }
 function test_empty() {}
 function test_exit() { fwrite(STDERR, 'child stderr'); exit(0); }
-function test_fatal() { require 'missing-file.php'; }
+function test_fatal() { fwrite(STDERR, 'fatal fixture stderr'); require __DIR__ . '/missing-file.php'; }
+function test_error() { throw new Error('deliberate catchable error'); }
 PHP
 );
 $initial = [getcwd(), ini_get_all(null, false), error_reporting(), ob_get_level(), get_included_files()];
@@ -39,11 +40,22 @@ try {
         && $definition['strict'] === true, 'Responses function definition');
     json_encode($definition, JSON_THROW_ON_ERROR);
     $args = ['directory' => null, 'files' => ['test_project.php'], 'test' => 'test_pass', 'list' => false];
+    // Failed require is E_COMPILE_ERROR before PHP 8, terminating the worker;
+    // PHP 8 throws a catchable Error, so it is a failed case instead.
+    $requireExit = PHP_VERSION_ID < 80000 ? 2 : 1;
     foreach (['test_pass' => 0, 'test_fail' => 1, 'test_empty' => 1, 'test_exit' => 2,
-        'test_fatal' => 1, 'test_nonexistent' => 2] as $name => $expected) {
+        'test_fatal' => $requireExit, 'test_error' => 1, 'test_nonexistent' => 2] as $name => $expected) {
         $report = $tool->execute(array_replace($args, ['test' => $name]));
-        tool_check($report['exit_code'] === $expected, "$name outcome");
+        tool_check($report['exit_code'] === $expected, "$name outcome: " . json_encode($report));
         json_encode($report, JSON_THROW_ON_ERROR);
+        if ($name === 'test_fatal' && PHP_VERSION_ID < 80000) {
+            tool_check(($report['errors'][0]['kind'] ?? null) === 'worker', 'fatal require must report worker failure');
+            tool_check(strpos($report['output']['stderr'] ?? '', 'fatal fixture stderr') !== false, 'capture fatal worker stderr');
+        }
+        if ($name === 'test_error' || ($name === 'test_fatal' && PHP_VERSION_ID >= 80000)) {
+            tool_check($report['errors'] === [] && ($report['tests'][0]['status'] ?? null) === 'FAIL',
+                "$name must be a failed case, not a worker failure");
+        }
         if ($name === 'test_pass') {
             tool_check(strpos($report['output']['stdout'], 'bootstrap noise') !== false, 'capture bootstrap');
             tool_check($report['tests'][0]['output'] === 'body noise', 'capture body');
@@ -51,7 +63,7 @@ try {
     }
     tool_check($tool->execute($args)['exit_code'] === 0, 'repeat after worker exit');
     $list = $tool->execute(['directory' => '.', 'files' => [], 'test' => null, 'list' => true]);
-    tool_check($list['exit_code'] === 0 && $list['summary']['total'] === 5, 'directory listing');
+    tool_check($list['exit_code'] === 0 && $list['summary']['total'] === 6, 'directory listing');
     foreach ([[], array_replace($args, ['files' => ['../outside.php']]),
         array_replace($args, ['directory' => '.']), array_replace($args, ['list' => 'yes']),
         array_replace($args, ['shell' => 'anything'])] as $bad) {
