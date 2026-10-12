@@ -20,7 +20,7 @@ jobs:
       matrix:
         php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
         with:
           php-version: ${{ matrix.php }}

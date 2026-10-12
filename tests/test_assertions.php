@@ -170,6 +170,12 @@ function test_contains_assertions_distinguish_empty_strings_from_null(): void {
     assert_icontains('', '', 'case-insensitive empty string contains empty needle');
     assert_icontains('0', '0', 'zero is a valid haystack');
     expect_test_error(fn() => assert_not_contains('', '', 'empty needle is present'), 'assert_not_contains empty strings');
+    assert_contains('hello', '', 'nonempty string contains empty needle');
+    assert_icontains('hello', '', 'case-insensitive nonempty string contains empty needle');
+    expect_test_error(fn() => assert_not_contains('hello', '', 'empty needle is present'), 'assert_not_contains nonempty string');
+    expect_test_error(fn() => assert_contains(null, '', 'null is not an empty string'), 'assert_contains null with empty needle');
+    expect_test_error(fn() => assert_icontains(null, '', 'null is not an empty string'), 'assert_icontains null with empty needle');
+    assert_not_contains(null, '', 'null haystack does not contain empty needle');
 }
 
 // === assert_instanceof ===

@@ -60,18 +60,19 @@ namespace {
 
     function assert_icontains(?string $haystack, ?string $needle, string $message) {
         assert_base_condition(function(?string $haystack, ?string $needle) {
-            return ($haystack !== null && $needle !== null && stripos($haystack, $needle) !== false); }, $haystack, $needle, $message);
+            return ($haystack !== null && $needle !== null && ($needle === '' || stripos($haystack, $needle) !== false)); }, $haystack, $needle, $message);
     }
 
     function assert_contains(?string $haystack, ?string $needle, string $message) {
         assert_base_condition(function(?string $haystack, ?string $needle) {
             if ($haystack === null || $needle === null) { return false; }
-            return strpos($haystack, $needle) !== false; }, $haystack, $needle, $message);
+            // PHP 7.4 rejects empty needles; keep the PHP 8 containment contract.
+            return $needle === '' || strpos($haystack, $needle) !== false; }, $haystack, $needle, $message);
     }
 
     function assert_not_contains(?string $haystack, ?string $needle, string $message) {
         assert_base_condition(function(?string $haystack, ?string $needle) {
-            return ($haystack === null || $needle === null || strpos($haystack, $needle) === false); }, $haystack, $needle, $message);
+            return ($haystack === null || $needle === null || ($needle !== '' && strpos($haystack, $needle) === false)); }, $haystack, $needle, $message);
     }
 
 	function assert_instanceof($actual, $expected, string $message) {

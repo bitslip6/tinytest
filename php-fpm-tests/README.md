@@ -117,12 +117,24 @@ Remove these test locations/pools and unset the test token after acceptance. Int
 your real project endpoint using `new-agents.md`; do not use the deliberately failing
 fixtures as your application suite.
 
+## GitHub Actions acceptance
+
+[The nginx/FPM workflow](../.github/workflows/fpm.yml) runs this probe on PHP 8.5 for pull requests, pushes to `master`, merge-queue groups and manual dispatch. It installs nginx/FPM on an ephemeral Linux runner, then runs isolated instances as the runner user, not the package's system services. The existing configuration examples are rendered into private temporary configs with an ephemeral token, separate driver/worker sockets and a shared state directory. Only loopback HTTP is exposed.
+
+The job requires root `ok: true`, every probe check to pass, and an FPM error-log line attributing execution timeout/termination to the exact hanging worker PID. The artifact contains `report.json`, `termination-confirmed.txt`, service/config-test logs and any retained failure state; token-bearing configs are never uploaded. Script exit (including failure or a handled termination signal) stops both service process groups and removes private configs. Forced runner termination ultimately relies on the ephemeral VM's destruction.
+
+To run the same acceptance automation locally on Linux with nginx, PHP-FPM, cURL, Python 3 and `setsid` installed:
+
+```sh
+FPM_BIN=php-fpm bash .github/scripts/fpm-integration.sh /tmp/tinytest-fpm-artifacts
+```
+
+Run as a non-root user with a readable checkout. This does not modify/reload system services. `FPM_BIN` can select a versioned executable (e.g. `php-fpm8.5`); `FASTCGI_PARAMS` defaults to `/etc/nginx/fastcgi_params`, and `FPM_TEST_PORT` defaults to loopback port 8099. Configuration paths must have no whitespace or configuration metacharacters. Use a fresh output directory for each run to avoid stale diagnostics. Inspect artifacts on failure before removing them.
+
 ## Repository verification vs deployment verification
 
 Lint these PHP files with `php -l`. Existing `tests/http_agent_contracts.php` tests the
-HTTP implementation with a development server. This directory intentionally requires
-your **real nginx/FPM deployment** to test service identity, permissions, routing,
-timeouts and recovery. A lint pass is not an FPM acceptance pass.
+HTTP implementation with a development server. The CI acceptance job checks a real nginx/FPM stack with temporary configuration. Repeat the probe on **your own nginx/FPM deployment** to test its service identity, permissions, routing, timeouts and recovery. Neither a lint pass nor a CI deployment pass certifies your host's configuration.
 
 Locally verified with nginx 1.30.4 and PHP-FPM 8.5.10 using temporary instances of
 these configurations: all 18 checks passed. The 3-second FPM policy terminated the

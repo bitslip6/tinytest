@@ -1,0 +1,47 @@
+name: nginx + PHP-FPM acceptance
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  fpm:
+    name: nginx + PHP-FPM / PHP 8.5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: '8.5'
+          extensions: curl
+          coverage: none
+      - name: Install nginx and PHP-FPM
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y nginx php8.5-fpm php8.5-curl
+          # Package services are not used: the probe starts isolated instances
+          # as the unprivileged runner user, with its own configs and sockets.
+          sudo systemctl stop nginx php8.5-fpm
+          php-fpm8.5 -v | grep -E '^PHP 8\.5\.'
+      - name: Real HTTP/FPM acceptance and hard-timeout attribution
+        env:
+          FPM_BIN: php-fpm8.5
+        run: bash .github/scripts/fpm-integration.sh "$RUNNER_TEMP/fpm-artifacts"
+      - name: Upload acceptance report and service diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: nginx-fpm-php-8.5
+          path: ${{ runner.temp }}/fpm-artifacts/
+          if-no-files-found: ignore

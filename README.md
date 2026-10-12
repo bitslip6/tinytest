@@ -256,6 +256,8 @@ Object comparison requires the same class and all initialized stored properties 
 
 `assert_true` rejects every PHP falsey value (`false`, `0`, `0.0`, `""`, `"0"`, `null`, `[]`). Both regex assertions fail on invalid patterns or regex execution errors; an invalid regex cannot satisfy `assert_not_matches`.
 
+String containment assertions treat an empty needle as present in every non-null string, including the empty string, on all supported PHP versions. Null haystacks or needles fail `assert_contains`/`assert_icontains` and pass `assert_not_contains`.
+
 ### Intentionally testing assertion failures
 
 A failed TinyTest assertion **still fails its case if caught**. Later passing assertions or resetting reporting counters cannot clear that outcome. Use the explicit helper when testing assertions themselves:
@@ -774,19 +776,20 @@ cd /path/to/my-project
 
 ## CI status
 
-All three workflows test **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 and 8.5** on Linux. These live badges show the latest `master` workflow status, not a claim that every version has already been verified. Before the first GitHub run, a badge may show no status.
+The lint, unit and contract workflows test **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 and 8.5** on Linux. A separate nginx/FPM acceptance workflow tests **PHP 8.5**. These live badges show the latest `master` workflow status, not a claim that every version has already been verified. Before the first GitHub run, a badge may show no status.
 
-| Check | Live `master` status | What must pass on every PHP version |
+| Check | Live `master` status | Required checks |
 |-------|----------------------|-------------------------------------|
 | PHP lint | [![PHP lint](https://github.com/bitslip6/tinytest/actions/workflows/lint.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/lint.yml?query=branch%3Amaster) | Syntax checks for all tracked PHP files, including fixtures |
 | Unit suite | [![PHP unit suite](https://github.com/bitslip6/tinytest/actions/workflows/unit.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/unit.yml?query=branch%3Amaster) | The suite with native assertions enabled **and** disabled |
 | Independent contracts | [![PHP contracts](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml?query=branch%3Amaster) | CLI outcomes, boundaries, entry guide, agent tool, agent timeout and HTTP agent contracts |
+| nginx + PHP-FPM (8.5) | [![nginx + PHP-FPM acceptance](https://github.com/bitslip6/tinytest/actions/workflows/fpm.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/fpm.yml?query=branch%3Amaster) | All real HTTP acceptance checks plus FPM log confirmation of the hanging worker's timeout termination |
 
-Click a badge, select a run, then open a PHP-version job to see each step's pass/fail status and logs. Contract harnesses have separate steps and continue after another harness fails; failures still fail the job. Unit JSON reports are available as run artifacts. A workflow is successful only when all seven version jobs pass; skipped, cancelled or pending runs are not proof of success.
+Click a badge, select a run, then open a PHP-version job to see each step's pass/fail status and logs. Contract harnesses have separate steps and continue after another harness fails; failures still fail the job. Unit JSON reports and FPM reports/service logs are available as run artifacts. A matrix workflow is successful only when all seven version jobs pass; the FPM workflow requires its PHP 8.5 job to pass. Skipped, cancelled or pending runs are not proof of success.
 
-Checks run on pull requests, pushes to `master`, merge-queue groups and manual dispatch. For a proposed change, use **that pull request's Checks tab** rather than the `master` badges. To enforce passing checks before merging, configure a GitHub branch ruleset for `master` requiring all `Lint / PHP …`, `Unit suite / PHP …` and `Contracts / PHP …` matrix checks, and restrict direct pushes. Workflow files alone do not block a direct push.
+Checks run on pull requests, pushes to `master`, merge-queue groups and manual dispatch. For a proposed change, use **that pull request's Checks tab** rather than the `master` badges. To enforce passing checks before merging, configure a GitHub branch ruleset for `master` requiring all `Lint / PHP …`, `Unit suite / PHP …` and `Contracts / PHP …` matrix checks plus `nginx + PHP-FPM / PHP 8.5`, and restrict direct pushes. Workflow files alone do not block a direct push.
 
-This matrix does **not** verify Windows, real nginx/FPM deployment, phpdbg coverage or profiling backends. The HTTP contracts use PHP's development server; see [the FPM acceptance guide](php-fpm-tests/README.md) for actual deployment verification.
+CI does **not** verify Windows, phpdbg coverage or profiling backends. The HTTP contracts use PHP's development server; the separate FPM workflow starts temporary nginx and separate driver/worker pools, verifies hard termination and recovery, and always tears down its service process groups on script exit. This checks the CI configuration, not your production host; see [the FPM acceptance guide](php-fpm-tests/README.md) for deployment verification.
 
 ## Verifying framework changes
 
