@@ -1,0 +1,46 @@
+name: PHP unit suite
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit:
+    name: Unit suite / PHP ${{ matrix.php }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pcntl, posix
+          coverage: none
+      - name: Verify process and signal capabilities
+        run: php -r 'foreach (["proc_open", "pcntl_alarm", "posix_kill"] as $function) { if (!function_exists($function)) { fwrite(STDERR, "Missing $function\n"); exit(1); } }'
+      - name: Unit suite (native assertions enabled)
+        run: php -d zend.assertions=1 tinytest.php -j -d tests/ | tee unit-enabled.json
+      - name: Unit suite (native assertions disabled)
+        if: ${{ !cancelled() }}
+        run: php -d zend.assertions=-1 tinytest.php -j -d tests/ | tee unit-disabled.json
+      - name: Upload unit reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unit-php-${{ matrix.php }}
+          path: unit-*.json
+          if-no-files-found: ignore

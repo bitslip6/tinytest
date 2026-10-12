@@ -1,0 +1,47 @@
+name: PHP contracts
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Contracts / PHP ${{ matrix.php }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, pcntl, posix
+          coverage: none
+      - name: Verify HTTP, process and signal capabilities
+        run: php -r 'foreach (["curl_init", "proc_open", "pcntl_alarm", "pcntl_signal", "posix_kill", "posix_setsid"] as $function) { if (!function_exists($function)) { fwrite(STDERR, "Missing $function\n"); exit(1); } }'
+      - name: CLI outcomes
+        run: php tests/cli_contracts.php
+      - name: Boundary contracts
+        if: ${{ !cancelled() }}
+        run: php tests/boundary_contracts.php
+      - name: Entry guide contracts
+        if: ${{ !cancelled() }}
+        run: php tests/entry_guide_contracts.php
+      - name: Agent tool contracts
+        if: ${{ !cancelled() }}
+        run: php tests/agent_tool_contracts.php
+      - name: Agent timeout contracts
+        if: ${{ !cancelled() }}
+        run: php tests/agent_timeout_contracts.php
+      - name: HTTP agent contracts
+        if: ${{ !cancelled() }}
+        run: php tests/http_agent_contracts.php

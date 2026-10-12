@@ -772,6 +772,22 @@ cd /path/to/my-project
 - **phpdbg** — for code coverage _(optional, bundled with most PHP distributions)_
 - **tideways/xhprof** — for profiling _(optional)_
 
+## CI status
+
+All three workflows test **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 and 8.5** on Linux. These live badges show the latest `master` workflow status, not a claim that every version has already been verified. Before the first GitHub run, a badge may show no status.
+
+| Check | Live `master` status | What must pass on every PHP version |
+|-------|----------------------|-------------------------------------|
+| PHP lint | [![PHP lint](https://github.com/bitslip6/tinytest/actions/workflows/lint.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/lint.yml?query=branch%3Amaster) | Syntax checks for all tracked PHP files, including fixtures |
+| Unit suite | [![PHP unit suite](https://github.com/bitslip6/tinytest/actions/workflows/unit.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/unit.yml?query=branch%3Amaster) | The suite with native assertions enabled **and** disabled |
+| Independent contracts | [![PHP contracts](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml?query=branch%3Amaster) | CLI outcomes, boundaries, entry guide, agent tool, agent timeout and HTTP agent contracts |
+
+Click a badge, select a run, then open a PHP-version job to see each step's pass/fail status and logs. Contract harnesses have separate steps and continue after another harness fails; failures still fail the job. Unit JSON reports are available as run artifacts. A workflow is successful only when all seven version jobs pass; skipped, cancelled or pending runs are not proof of success.
+
+Checks run on pull requests, pushes to `master`, merge-queue groups and manual dispatch. For a proposed change, use **that pull request's Checks tab** rather than the `master` badges. To enforce passing checks before merging, configure a GitHub branch ruleset for `master` requiring all `Lint / PHP …`, `Unit suite / PHP …` and `Contracts / PHP …` matrix checks, and restrict direct pushes. Workflow files alone do not block a direct push.
+
+This matrix does **not** verify Windows, real nginx/FPM deployment, phpdbg coverage or profiling backends. The HTTP contracts use PHP's development server; see [the FPM acceptance guide](php-fpm-tests/README.md) for actual deployment verification.
+
 ## Verifying framework changes
 
 ```shell

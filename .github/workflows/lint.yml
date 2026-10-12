@@ -1,0 +1,35 @@
+name: PHP lint
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint / PHP ${{ matrix.php }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: shivammathur/setup-php@d52fc211a0436f8839a587b3b5b8efddab4744ea # v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Lint all tracked PHP files (including fixtures)
+        shell: bash
+        run: |
+          failed=0
+          while IFS= read -r -d '' file; do
+            php -l "$file" || failed=1
+          done < <(git ls-files -z -- '*.php')
+          exit "$failed"
