@@ -16,6 +16,7 @@ php tests/entry_guide_contracts.php
 php tests/agent_tool_contracts.php
 php tests/agent_timeout_contracts.php
 php tests/http_agent_contracts.php
+php tests/distribution_contracts.php
 ```
 
 Lint changed PHP files with `php -l path/to/file.php`.
@@ -38,6 +39,7 @@ Coverage/profiling require optional backends and separate verification.
 | Discovery, annotations, case/provider execution, aggregation | `tinytest.php`: `load_file`, `load_dir`, `do_test`, `run_test`, `run_suite` | `tests/test_tinytest.php`, CLI contracts |
 | Coverage/profiling (still embedded) | `tinytest.php`: `coverage_to_lcov`, `output_profile` | `tests/test_tinytest.php` |
 | Project overrides | `user_defined.php`, `run_suite` | boundary contracts |
+| Plain-PHP distribution | `tinytest.php`, `assertions.php`, `user_defined.php`, `src/` | `tests/distribution_contracts.php` |
 | Consumer setup/instructions | `agent-integration/` | setup smoke tests still planned |
 
 Call chain: `tinytest.php` → `run_cli` → validate → optional JSON worker →

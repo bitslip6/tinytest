@@ -782,10 +782,12 @@ The lint, unit and contract workflows test **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 an
 |-------|----------------------|-------------------------------------|
 | PHP lint | [![PHP lint](https://github.com/bitslip6/tinytest/actions/workflows/lint.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/lint.yml?query=branch%3Amaster) | Syntax checks for all tracked PHP files, including fixtures |
 | Unit suite | [![PHP unit suite](https://github.com/bitslip6/tinytest/actions/workflows/unit.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/unit.yml?query=branch%3Amaster) | The suite with native assertions enabled **and** disabled |
-| Independent contracts | [![PHP contracts](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml?query=branch%3Amaster) | CLI outcomes, boundaries, entry guide, agent tool, agent timeout and HTTP agent contracts |
+| Independent contracts | [![PHP contracts](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/contracts.yml?query=branch%3Amaster) | CLI outcomes, boundaries, entry guide, agent tool, agent timeout, HTTP agent and distribution contracts |
 | nginx + PHP-FPM (8.5) | [![nginx + PHP-FPM acceptance](https://github.com/bitslip6/tinytest/actions/workflows/fpm.yml/badge.svg?branch=master)](https://github.com/bitslip6/tinytest/actions/workflows/fpm.yml?query=branch%3Amaster) | All real HTTP acceptance checks plus FPM log confirmation of the hanging worker's timeout termination |
 
 Click a badge, select a run, then open a PHP-version job to see each step's pass/fail status and logs. Contract harnesses have separate steps and continue after another harness fails; failures still fail the job. Unit JSON reports and FPM reports/service logs are available as run artifacts. A matrix workflow is successful only when all seven version jobs pass; the FPM workflow requires its PHP 8.5 job to pass. Skipped, cancelled or pending runs are not proof of success.
+
+The **Distribution smoke test** step in every Contracts job copies only `tinytest.php`, `assertions.php`, `user_defined.php` and `src/` into a temporary consumer project. It verifies exits 0/1/2, valid JSON despite project stdout/stderr, relative consumer paths, an unrelated working directory, directory discovery and listing. Consumer assertions also verify that included PHP files never come from the original checkout. This is already covered by the required Contracts checks; no new ruleset contexts are needed. It does not test the agent setup installer or optional backends.
 
 Checks run on pull requests, pushes to `master`, merge-queue groups and manual dispatch. For a proposed change, use **that pull request's Checks tab** rather than the `master` badges.
 
@@ -818,11 +820,43 @@ php tests/entry_guide_contracts.php
 php tests/agent_tool_contracts.php
 php tests/agent_timeout_contracts.php
 php tests/http_agent_contracts.php
+php tests/distribution_contracts.php
 ```
 
 The independent subprocess harnesses check real exit codes, JSON outcomes, sticky assertion failures, exception/PHP-error expectations, providers, filtering, input validation, startup settings, and noisy/aborted worker processes. Deliberately failing fixtures live in `tests/fixtures/` (or temporary projects), outside the default shallow test scan. The unit suite includes an intentional stderr exercise; JSON captures it in `output.stderr`.
 
 Contributors: start with [AGENTS.md](AGENTS.md) for the call chain and task-to-file map. Boundary implementations are in `src/cli.php`, `src/options.php`, and `src/execution_state.php`; the remaining runner extraction is still planned.
+
+## Deploying CI changes
+
+CI configuration is deployed by merging a green PR, not by restarting an application service. For the distribution-test change:
+
+```sh
+git switch -c ci/distribution-smoke-test
+php -l tests/distribution_contracts.php
+php tests/distribution_contracts.php
+
+git add tests/distribution_contracts.php .github/workflows/contracts.yml README.md AGENTS.md
+git diff --cached --check
+git commit -m "Add consumer distribution smoke test to required CI"
+git push -u origin ci/distribution-smoke-test
+
+gh pr create --base master --title "Add distribution smoke test" --body "Verify the documented plain-PHP distribution in a temporary consumer project across PHP 7.4–8.5."
+gh pr checks --watch
+```
+
+Open a Contracts job and confirm **Distribution smoke test** passes on all seven PHP versions; all 22 required checks must be green. If `master` advances, run `git fetch origin`, `git merge origin/master`, `git push`, and wait for CI again. Fix failures on the feature branch; do not bypass protection.
+
+Then merge and synchronize:
+
+```sh
+gh pr merge --squash --delete-branch
+git switch master
+git pull --ff-only
+gh run list --branch master --limit 4
+```
+
+Confirm the four post-merge workflows complete successfully and the README badges are green. No live ruleset update is needed because the existing Contracts job names are unchanged.
 
 ## Roadmap
 
