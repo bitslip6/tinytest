@@ -1,0 +1,57 @@
+{
+  "name": "Protect master",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/master"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": false,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "Lint / PHP 7.4", "integration_id": 15368 },
+          { "context": "Lint / PHP 8.0", "integration_id": 15368 },
+          { "context": "Lint / PHP 8.1", "integration_id": 15368 },
+          { "context": "Lint / PHP 8.2", "integration_id": 15368 },
+          { "context": "Lint / PHP 8.3", "integration_id": 15368 },
+          { "context": "Lint / PHP 8.4", "integration_id": 15368 },
+          { "context": "Lint / PHP 8.5", "integration_id": 15368 },
+          { "context": "Unit suite / PHP 7.4", "integration_id": 15368 },
+          { "context": "Unit suite / PHP 8.0", "integration_id": 15368 },
+          { "context": "Unit suite / PHP 8.1", "integration_id": 15368 },
+          { "context": "Unit suite / PHP 8.2", "integration_id": 15368 },
+          { "context": "Unit suite / PHP 8.3", "integration_id": 15368 },
+          { "context": "Unit suite / PHP 8.4", "integration_id": 15368 },
+          { "context": "Unit suite / PHP 8.5", "integration_id": 15368 },
+          { "context": "Contracts / PHP 7.4", "integration_id": 15368 },
+          { "context": "Contracts / PHP 8.0", "integration_id": 15368 },
+          { "context": "Contracts / PHP 8.1", "integration_id": 15368 },
+          { "context": "Contracts / PHP 8.2", "integration_id": 15368 },
+          { "context": "Contracts / PHP 8.3", "integration_id": 15368 },
+          { "context": "Contracts / PHP 8.4", "integration_id": 15368 },
+          { "context": "Contracts / PHP 8.5", "integration_id": 15368 },
+          { "context": "nginx + PHP-FPM / PHP 8.5", "integration_id": 15368 }
+        ]
+      }
+    }
+  ]
+}

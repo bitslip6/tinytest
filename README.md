@@ -770,13 +770,13 @@ cd /path/to/my-project
 
 ## Requirements
 
-- **PHP 7.4+** syntax/runtime baseline (PHP 8.x recommended; current fixes verified on PHP CLI 8.5)
+- **PHP 7.4+** syntax/runtime baseline (PHP 8.x recommended; Linux CLI CI verified on PHP 7.4 and 8.0–8.5)
 - **phpdbg** — for code coverage _(optional, bundled with most PHP distributions)_
 - **tideways/xhprof** — for profiling _(optional)_
 
 ## CI status
 
-The lint, unit and contract workflows test **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 and 8.5** on Linux. A separate nginx/FPM acceptance workflow tests **PHP 8.5**. These live badges show the latest `master` workflow status, not a claim that every version has already been verified. Before the first GitHub run, a badge may show no status.
+The lint, unit and contract workflows test **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 and 8.5** on Linux. A separate nginx/FPM acceptance workflow tests **PHP 8.5**. All **22 checks passed** for [`f3a136e`](https://github.com/bitslip6/tinytest/commit/f3a136e2116b3a233cca09ae083993a12548f111), including every CLI version and real nginx/FPM acceptance. The live badges below show the latest `master` workflow status; use them and the linked runs for current results.
 
 | Check | Live `master` status | Required checks |
 |-------|----------------------|-------------------------------------|
@@ -787,7 +787,24 @@ The lint, unit and contract workflows test **PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4 an
 
 Click a badge, select a run, then open a PHP-version job to see each step's pass/fail status and logs. Contract harnesses have separate steps and continue after another harness fails; failures still fail the job. Unit JSON reports and FPM reports/service logs are available as run artifacts. A matrix workflow is successful only when all seven version jobs pass; the FPM workflow requires its PHP 8.5 job to pass. Skipped, cancelled or pending runs are not proof of success.
 
-Checks run on pull requests, pushes to `master`, merge-queue groups and manual dispatch. For a proposed change, use **that pull request's Checks tab** rather than the `master` badges. To enforce passing checks before merging, configure a GitHub branch ruleset for `master` requiring all `Lint / PHP …`, `Unit suite / PHP …` and `Contracts / PHP …` matrix checks plus `nginx + PHP-FPM / PHP 8.5`, and restrict direct pushes. Workflow files alone do not block a direct push.
+Checks run on pull requests, pushes to `master`, merge-queue groups and manual dispatch. For a proposed change, use **that pull request's Checks tab** rather than the `master` badges.
+
+### Enforced merges to master
+
+The active [Protect master ruleset](https://github.com/bitslip6/tinytest/rules/24956852) requires:
+
+- A pull request for every change; direct pushes have no bypass, including for administrators.
+- All **22 GitHub Actions checks**: seven `Lint / PHP …`, seven `Unit suite / PHP …`, seven `Contracts / PHP …`, and `nginx + PHP-FPM / PHP 8.5`. Required checks are bound to the GitHub Actions app.
+- The PR branch to be up to date with `master` before merging.
+- No force pushes or deletion of `master`.
+
+No approving review is required, so a solo maintainer can merge a green PR. Push changes to a feature branch, open a PR, update it if `master` advances, and merge only after the required checks pass.
+
+[`.github/master-ruleset.json`](.github/master-ruleset.json) records the policy applied through GitHub's API. Editing this file alone does not update enforcement. If workflow job names or matrix versions change, update both the recorded policy and the live ruleset so required checks do not remain pending indefinitely.
+
+### Automatic action-pin updates
+
+[Dependabot configuration](.github/dependabot.yml) checks GitHub Actions dependencies weekly on Mondays and opens up to five update PRs targeting `master`, preserving commit-SHA pinning. Updates are reviewed through the same required CI checks; they are **not auto-merged**. This configuration takes effect once merged into `master`.
 
 CI does **not** verify Windows, phpdbg coverage or profiling backends. The HTTP contracts use PHP's development server; the separate FPM workflow starts temporary nginx and separate driver/worker pools, verifies hard termination and recovery, and always tears down its service process groups on script exit. This checks the CI configuration, not your production host; see [the FPM acceptance guide](php-fpm-tests/README.md) for deployment verification.
 
