@@ -45,3 +45,6 @@ jobs:
       - name: HTTP agent contracts
         if: ${{ !cancelled() }}
         run: php tests/http_agent_contracts.php
+      - name: Distribution smoke test
+        if: ${{ !cancelled() }}
+        run: php tests/distribution_contracts.php
